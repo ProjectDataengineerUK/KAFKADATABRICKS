@@ -1,24 +1,30 @@
-output "resource_group_name" {
-  value = azurerm_resource_group.this.name
+output "kafka_bootstrap_servers" {
+  description = "Valor para KAFKA_BOOTSTRAP_SERVERS (.env / secret scope Databricks)"
+  value       = confluent_kafka_cluster.this.bootstrap_endpoint
 }
 
-output "storage_account_name" {
-  value = azurerm_storage_account.this.name
+output "kafka_api_key" {
+  description = "Valor para KAFKA_API_KEY"
+  value       = confluent_api_key.app.id
+  sensitive   = true
 }
 
-output "raw_filesystem_url" {
-  description = "URL abfss:// do filesystem 'raw' usado pelo Autoloader"
-  value       = "abfss://${azurerm_storage_data_lake_gen2_filesystem.raw.name}@${azurerm_storage_account.this.name}.dfs.core.windows.net/"
+output "kafka_api_secret" {
+  description = "Valor para KAFKA_API_SECRET"
+  value       = confluent_api_key.app.secret
+  sensitive   = true
 }
 
-output "key_vault_name" {
-  value = azurerm_key_vault.this.name
+output "kafka_topic" {
+  value = confluent_kafka_topic.consentimentos.topic_name
 }
 
-output "databricks_workspace_url" {
-  value = azurerm_databricks_workspace.this.workspace_url
+output "mongo_uri" {
+  description = "Valor para MONGO_URI — monte com o usuário/senha de mongodbatlas_database_user.app"
+  value       = "mongodb+srv://${mongodbatlas_database_user.app.username}:<senha>@${replace(mongodbatlas_cluster.this.connection_strings[0].standard_srv, "mongodb+srv://", "")}"
+  sensitive   = true
 }
 
-output "databricks_secret_scope" {
-  value = databricks_secret_scope.consent_pipeline.name
+output "mongodbatlas_project_id" {
+  value = mongodbatlas_project.this.id
 }

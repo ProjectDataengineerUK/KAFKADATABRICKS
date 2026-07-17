@@ -1,19 +1,20 @@
 # Databricks notebook source
 # MAGIC %md
 # MAGIC # Bronze: Autoloader — cadastro de clientes/bancos/seguradoras
-# MAGIC Ingestão incremental dos CSVs de cadastro (Azure Storage) para a camada
-# MAGIC Bronze, com schema evolution automática e checkpoint para nunca reler
-# MAGIC arquivos já processados.
+# MAGIC Ingestão incremental dos CSVs de cadastro (Unity Catalog Volume) para a
+# MAGIC camada Bronze, com schema evolution automática e checkpoint para nunca
+# MAGIC reler arquivos já processados. Roda inteiramente no Databricks Free
+# MAGIC Edition — sem storage externo (Azure/AWS/GCP).
 
 # COMMAND ----------
 
 dbutils.widgets.text("catalog", "consent_pipeline_dev")
-dbutils.widgets.text("raw_path", "/mnt/raw/cadastro/")
-dbutils.widgets.text("checkpoint_base", "/mnt/checkpoints")
+dbutils.widgets.text("raw_path", "")  # vazio = usa o Volume padrão do catálogo
+dbutils.widgets.text("checkpoint_base", "")  # vazio = usa o Volume padrão do catálogo
 
 catalog = dbutils.widgets.get("catalog")
-raw_path = dbutils.widgets.get("raw_path")
-checkpoint_base = dbutils.widgets.get("checkpoint_base")
+raw_path = dbutils.widgets.get("raw_path") or f"/Volumes/{catalog}/landing/cadastro/"
+checkpoint_base = dbutils.widgets.get("checkpoint_base") or f"/Volumes/{catalog}/ops/checkpoints"
 
 spark.sql(f"USE CATALOG {catalog}")
 

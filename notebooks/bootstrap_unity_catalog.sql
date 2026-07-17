@@ -1,8 +1,18 @@
 -- Databricks notebook source
--- Bootstrap Unity Catalog: catálogos dev/prod, schemas, grants,
--- mascaramento de PII e row-level security por seguradora.
+-- Bootstrap Unity Catalog: catálogos dev/prod, schemas, volumes (landing
+-- zone dos CSVs e checkpoints de streaming — substituem o Azure Blob
+-- Storage no Databricks Free Edition), grants, mascaramento de PII e
+-- row-level security por seguradora.
 -- Execução: uma vez por ambiente (dev/prod), via job de setup ou manualmente
 -- por um admin do workspace. Parametrizado por :catalog (widget).
+--
+-- NOTA (Free Edition): contas Free Edition normalmente já vêm com um
+-- catálogo padrão e podem restringir `CREATE CATALOG` a um único catálogo
+-- por conta. Se o `CREATE CATALOG` abaixo falhar por permissão, use o
+-- catálogo padrão da conta e troque a separação dev/prod para o nível de
+-- schema (ex.: `dev_bronze`/`prod_bronze` em vez de catálogos distintos) —
+-- ajuste os widgets `catalog` nos outros notebooks e no `databricks.yml`
+-- de acordo.
 
 -- COMMAND ----------
 
@@ -15,8 +25,18 @@
 
 CREATE CATALOG IF NOT EXISTS IDENTIFIER(:catalog);
 
+CREATE SCHEMA IF NOT EXISTS IDENTIFIER(:catalog || '.landing');
 CREATE SCHEMA IF NOT EXISTS IDENTIFIER(:catalog || '.bronze');
 CREATE SCHEMA IF NOT EXISTS IDENTIFIER(:catalog || '.silver');
+CREATE SCHEMA IF NOT EXISTS IDENTIFIER(:catalog || '.ops');
+
+-- COMMAND ----------
+
+-- Volumes: landing zone dos CSVs de cadastro e diretório de checkpoints
+-- de streaming. Substituem o Azure Blob Storage montado — tudo dentro do
+-- próprio workspace Databricks Free Edition.
+CREATE VOLUME IF NOT EXISTS IDENTIFIER(:catalog || '.landing.cadastro');
+CREATE VOLUME IF NOT EXISTS IDENTIFIER(:catalog || '.ops.checkpoints');
 
 -- COMMAND ----------
 
@@ -61,8 +81,10 @@ CREATE TABLE IF NOT EXISTS IDENTIFIER(:catalog || '.silver.consentimentos_quaren
 GRANT USE CATALOG ON CATALOG IDENTIFIER(:catalog) TO `data_engineers`;
 GRANT USE CATALOG ON CATALOG IDENTIFIER(:catalog) TO `analysts`;
 
+GRANT USE SCHEMA, SELECT, MODIFY ON SCHEMA IDENTIFIER(:catalog || '.landing') TO `data_engineers`;
 GRANT USE SCHEMA, SELECT, MODIFY ON SCHEMA IDENTIFIER(:catalog || '.bronze') TO `data_engineers`;
 GRANT USE SCHEMA, SELECT, MODIFY ON SCHEMA IDENTIFIER(:catalog || '.silver') TO `data_engineers`;
+GRANT USE SCHEMA, READ VOLUME, WRITE VOLUME ON SCHEMA IDENTIFIER(:catalog || '.ops') TO `data_engineers`;
 
 GRANT USE SCHEMA, SELECT ON SCHEMA IDENTIFIER(:catalog || '.silver') TO `analysts`;
 

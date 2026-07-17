@@ -8,13 +8,13 @@
 # COMMAND ----------
 
 dbutils.widgets.text("catalog", "consent_pipeline_dev")
-dbutils.widgets.text("checkpoint_base", "/mnt/checkpoints")
+dbutils.widgets.text("checkpoint_base", "")  # vazio = usa o Volume padrão do catálogo
 dbutils.widgets.text("secret_scope", "consent-pipeline")
 dbutils.widgets.text("mongo_database", "susep_simulado")
 dbutils.widgets.text("mongo_collection", "consentimentos_cliente")
 
 catalog = dbutils.widgets.get("catalog")
-checkpoint_base = dbutils.widgets.get("checkpoint_base")
+checkpoint_base = dbutils.widgets.get("checkpoint_base") or f"/Volumes/{catalog}/ops/checkpoints"
 secret_scope = dbutils.widgets.get("secret_scope")
 mongo_database = dbutils.widgets.get("mongo_database")
 mongo_collection = dbutils.widgets.get("mongo_collection")

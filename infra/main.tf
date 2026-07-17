@@ -2,143 +2,136 @@ terraform {
   required_version = ">= 1.7.0"
 
   required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 3.116"
+    confluent = {
+      source  = "confluentinc/confluent"
+      version = "~> 2.6"
     }
-    databricks = {
-      source  = "databricks/databricks"
-      version = "~> 1.53"
-    }
-  }
-
-  # Backend remoto configurado via `-backend-config` no CI/CD (evita
-  # segredos/estado versionado no repositório público).
-  backend "azurerm" {}
-}
-
-provider "azurerm" {
-  features {
-    key_vault {
-      purge_soft_delete_on_destroy = true
+    mongodbatlas = {
+      source  = "mongodb/mongodbatlas"
+      version = "~> 1.18"
     }
   }
+
+  # Sem backend remoto: este projeto usa tier free em todos os provedores
+  # (nada de conta Azure/AWS/GCP para hospedar state). O `terraform apply`
+  # roda localmente (state fica em infra/*.tfstate, já no .gitignore) e é
+  # aplicado uma única vez por ambiente — o CI só roda `fmt`/`validate`
+  # (ver .github/workflows/ci-cd.yml). Ver README para o passo a passo.
+}
+
+provider "confluent" {
+  cloud_api_key    = var.confluent_cloud_api_key
+  cloud_api_secret = var.confluent_cloud_api_secret
+}
+
+provider "mongodbatlas" {
+  public_key  = var.mongodbatlas_public_key
+  private_key = var.mongodbatlas_private_key
 }
 
 # ---------------------------------------------------------------------------
-# Resource Group
+# Confluent Cloud — environment + cluster Basic (trial) + tópico + service
+# account dedicada ao pipeline
 # ---------------------------------------------------------------------------
 
-resource "azurerm_resource_group" "this" {
-  name     = "rg-${var.project_name}-${var.environment}"
-  location = var.location
-  tags     = local.tags
+resource "confluent_environment" "this" {
+  display_name = "${var.project_name}-${var.environment}"
 }
 
-# ---------------------------------------------------------------------------
-# Storage (ADLS Gen2) — pouso dos CSVs de cadastro consumidos pelo Autoloader
-# ---------------------------------------------------------------------------
+resource "confluent_kafka_cluster" "this" {
+  display_name = "${var.project_name}-${var.environment}"
+  availability = "SINGLE_ZONE"
+  cloud        = "AWS"
+  region       = var.confluent_region
 
-resource "azurerm_storage_account" "this" {
-  name                     = replace("st${var.project_name}${var.environment}", "-", "")
-  resource_group_name      = azurerm_resource_group.this.name
-  location                 = azurerm_resource_group.this.location
-  account_tier             = "Standard"
-  account_replication_type = "LRS"
-  is_hns_enabled           = true
-  min_tls_version          = "TLS1_2"
-  tags                     = local.tags
-}
+  basic {}
 
-resource "azurerm_storage_data_lake_gen2_filesystem" "raw" {
-  name               = "raw"
-  storage_account_id = azurerm_storage_account.this.id
-}
-
-# ---------------------------------------------------------------------------
-# Key Vault — origem dos segredos (Kafka, MongoDB, JWT) via Databricks
-# secret scope backed by Key Vault
-# ---------------------------------------------------------------------------
-
-data "azurerm_client_config" "current" {}
-
-resource "azurerm_key_vault" "this" {
-  name                       = "kv-${var.project_name}-${var.environment}"
-  resource_group_name        = azurerm_resource_group.this.name
-  location                   = azurerm_resource_group.this.location
-  tenant_id                  = data.azurerm_client_config.current.tenant_id
-  sku_name                   = "standard"
-  purge_protection_enabled   = false
-  soft_delete_retention_days = 7
-  tags                       = local.tags
-}
-
-resource "azurerm_key_vault_access_policy" "terraform" {
-  key_vault_id = azurerm_key_vault.this.id
-  tenant_id    = data.azurerm_client_config.current.tenant_id
-  object_id    = data.azurerm_client_config.current.object_id
-
-  secret_permissions = ["Get", "List", "Set", "Delete", "Purge"]
-}
-
-resource "azurerm_key_vault_secret" "kafka_bootstrap" {
-  name         = "kafka-bootstrap"
-  value        = var.kafka_bootstrap_servers
-  key_vault_id = azurerm_key_vault.this.id
-  depends_on   = [azurerm_key_vault_access_policy.terraform]
-}
-
-resource "azurerm_key_vault_secret" "kafka_api_key" {
-  name         = "kafka-api-key"
-  value        = var.kafka_api_key
-  key_vault_id = azurerm_key_vault.this.id
-  depends_on   = [azurerm_key_vault_access_policy.terraform]
-}
-
-resource "azurerm_key_vault_secret" "kafka_api_secret" {
-  name         = "kafka-api-secret"
-  value        = var.kafka_api_secret
-  key_vault_id = azurerm_key_vault.this.id
-  depends_on   = [azurerm_key_vault_access_policy.terraform]
-}
-
-resource "azurerm_key_vault_secret" "mongo_uri" {
-  name         = "mongo-uri"
-  value        = var.mongo_uri
-  key_vault_id = azurerm_key_vault.this.id
-  depends_on   = [azurerm_key_vault_access_policy.terraform]
-}
-
-# ---------------------------------------------------------------------------
-# Databricks Workspace (Premium — necessário para secret scopes com Key
-# Vault e para habilitar Unity Catalog)
-# ---------------------------------------------------------------------------
-
-resource "azurerm_databricks_workspace" "this" {
-  name                = "dbw-${var.project_name}-${var.environment}"
-  resource_group_name = azurerm_resource_group.this.name
-  location            = azurerm_resource_group.this.location
-  sku                 = "premium"
-  tags                = local.tags
-}
-
-provider "databricks" {
-  host = azurerm_databricks_workspace.this.workspace_url
-}
-
-resource "databricks_secret_scope" "consent_pipeline" {
-  name = "consent-pipeline"
-
-  keyvault_metadata {
-    resource_id = azurerm_key_vault.this.id
-    dns_name    = azurerm_key_vault.this.vault_uri
+  environment {
+    id = confluent_environment.this.id
   }
 }
 
-locals {
-  tags = {
-    project     = var.project_name
-    environment = var.environment
-    managed_by  = "terraform"
+resource "confluent_service_account" "app" {
+  display_name = "${var.project_name}-${var.environment}-app"
+  description  = "Usado pelo producer (simulador do app do banco) e pelos jobs Databricks"
+}
+
+resource "confluent_role_binding" "app_cluster_admin" {
+  principal   = "User:${confluent_service_account.app.id}"
+  role_name   = "CloudClusterAdmin"
+  crn_pattern = confluent_kafka_cluster.this.rbac_crn
+}
+
+resource "confluent_api_key" "app" {
+  display_name = "${var.project_name}-${var.environment}-app-key"
+
+  owner {
+    id          = confluent_service_account.app.id
+    api_version = confluent_service_account.app.api_version
+    kind        = confluent_service_account.app.kind
   }
+
+  managed_resource {
+    id          = confluent_kafka_cluster.this.id
+    api_version = confluent_kafka_cluster.this.api_version
+    kind        = confluent_kafka_cluster.this.kind
+
+    environment {
+      id = confluent_environment.this.id
+    }
+  }
+}
+
+resource "confluent_kafka_topic" "consentimentos" {
+  kafka_cluster {
+    id = confluent_kafka_cluster.this.id
+  }
+  topic_name       = var.kafka_topic
+  partitions_count = 3
+  rest_endpoint    = confluent_kafka_cluster.this.rest_endpoint
+
+  credentials {
+    key    = confluent_api_key.app.id
+    secret = confluent_api_key.app.secret
+  }
+
+  depends_on = [confluent_role_binding.app_cluster_admin]
+}
+
+# ---------------------------------------------------------------------------
+# MongoDB Atlas — projeto + cluster free (M0) + usuário de aplicação
+# ("base Susep" simulada)
+# ---------------------------------------------------------------------------
+
+resource "mongodbatlas_project" "this" {
+  name   = "${var.project_name}-${var.environment}"
+  org_id = var.mongodbatlas_org_id
+}
+
+resource "mongodbatlas_cluster" "this" {
+  project_id = mongodbatlas_project.this.id
+  name       = "${var.project_name}-${var.environment}"
+
+  provider_name               = "TENANT"
+  backing_provider_name       = "AWS"
+  provider_region_name        = var.mongodbatlas_region
+  provider_instance_size_name = "M0"
+}
+
+resource "mongodbatlas_database_user" "app" {
+  project_id         = mongodbatlas_project.this.id
+  username           = "${var.project_name}-app"
+  password           = var.mongodbatlas_app_password
+  auth_database_name = "admin"
+
+  roles {
+    role_name     = "readWrite"
+    database_name = var.mongo_db_name
+  }
+}
+
+resource "mongodbatlas_project_ip_access_list" "allow_all" {
+  project_id = mongodbatlas_project.this.id
+  cidr_block = "0.0.0.0/0"
+  comment    = "Demo de portfólio (Databricks Free Edition e Render não têm IP fixo) — restringir se sair do escopo de demo"
 }

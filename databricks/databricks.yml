@@ -6,32 +6,31 @@ include:
 
 variables:
   catalog:
-    description: Catálogo Unity Catalog do ambiente
+    description: >-
+      Catálogo Unity Catalog do ambiente. Free Edition normalmente permite
+      só um catálogo por conta — se `CREATE CATALOG` falhar no bootstrap,
+      use um único catálogo e troque esta variável para nomear schemas
+      (ex.: dev_bronze/prod_bronze) em vez de catálogos.
   checkpoint_base:
-    description: Path base dos checkpoints de streaming
-    default: /mnt/checkpoints
+    description: "Path dos checkpoints de streaming (Unity Catalog Volume). Vazio = notebook usa o Volume padrão do catálogo."
+    default: ""
   raw_path:
-    description: Path dos CSVs de cadastro (Azure Storage)
-    default: /mnt/raw/cadastro/
+    description: "Path dos CSVs de cadastro (Unity Catalog Volume). Vazio = notebook usa o Volume padrão do catálogo."
+    default: ""
   secret_scope:
-    description: Databricks secret scope (backed by Key Vault)
+    description: Databricks secret scope nativo (criado via `databricks secrets create-scope`, sem depender de nenhum cloud provider)
     default: consent-pipeline
 
 targets:
   dev:
     default: true
-    workspace:
-      host: ${DATABRICKS_HOST_DEV}
-      root_path: /Shared/.bundle/consent_pipeline/dev
+    # workspace.host/token vêm de $DATABRICKS_HOST / $DATABRICKS_TOKEN no
+    # ambiente (CI ou shell local) — não hardcoded aqui. No Databricks Free
+    # Edition uma conta = um workspace, então dev e prod apontam para o
+    # mesmo host; a separação de ambiente é feita pelo catálogo.
     variables:
       catalog: consent_pipeline_dev
 
   prod:
-    mode: production
-    workspace:
-      host: ${DATABRICKS_HOST_PROD}
-      root_path: /Shared/.bundle/consent_pipeline/prod
-    run_as:
-      service_principal_name: ${DATABRICKS_SP_PROD}
     variables:
       catalog: consent_pipeline_prod
