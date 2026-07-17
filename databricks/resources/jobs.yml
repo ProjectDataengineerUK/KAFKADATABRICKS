@@ -1,0 +1,45 @@
+resources:
+  jobs:
+    bootstrap_unity_catalog_job:
+      name: "bootstrap-unity-catalog-${bundle.target}"
+      tasks:
+        - task_key: bootstrap_unity_catalog
+          notebook_task:
+            notebook_path: ../../notebooks/bootstrap_unity_catalog.sql
+            base_parameters:
+              catalog: ${var.catalog}
+
+    consent_pipeline_job:
+      name: "consent-pipeline-${bundle.target}"
+      trigger:
+        periodic:
+          interval: 1
+          unit: HOURS
+      tasks:
+        - task_key: bronze_autoloader
+          notebook_task:
+            notebook_path: ../../notebooks/bronze_autoloader.py
+            base_parameters:
+              catalog: ${var.catalog}
+              raw_path: ${var.raw_path}
+              checkpoint_base: ${var.checkpoint_base}
+
+        - task_key: silver_consent_stream
+          depends_on:
+            - task_key: bronze_autoloader
+          notebook_task:
+            notebook_path: ../../notebooks/silver_consent_stream.py
+            base_parameters:
+              catalog: ${var.catalog}
+              checkpoint_base: ${var.checkpoint_base}
+              secret_scope: ${var.secret_scope}
+
+        - task_key: mongo_sink
+          depends_on:
+            - task_key: silver_consent_stream
+          notebook_task:
+            notebook_path: ../../notebooks/mongo_sink.py
+            base_parameters:
+              catalog: ${var.catalog}
+              checkpoint_base: ${var.checkpoint_base}
+              secret_scope: ${var.secret_scope}

@@ -1,0 +1,37 @@
+bundle:
+  name: consent_pipeline
+
+include:
+  - resources/jobs.yml
+
+variables:
+  catalog:
+    description: Catálogo Unity Catalog do ambiente
+  checkpoint_base:
+    description: Path base dos checkpoints de streaming
+    default: /mnt/checkpoints
+  raw_path:
+    description: Path dos CSVs de cadastro (Azure Storage)
+    default: /mnt/raw/cadastro/
+  secret_scope:
+    description: Databricks secret scope (backed by Key Vault)
+    default: consent-pipeline
+
+targets:
+  dev:
+    default: true
+    workspace:
+      host: ${DATABRICKS_HOST_DEV}
+      root_path: /Shared/.bundle/consent_pipeline/dev
+    variables:
+      catalog: consent_pipeline_dev
+
+  prod:
+    mode: production
+    workspace:
+      host: ${DATABRICKS_HOST_PROD}
+      root_path: /Shared/.bundle/consent_pipeline/prod
+    run_as:
+      service_principal_name: ${DATABRICKS_SP_PROD}
+    variables:
+      catalog: consent_pipeline_prod

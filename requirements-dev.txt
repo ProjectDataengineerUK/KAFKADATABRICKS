@@ -1,0 +1,14 @@
+# Dependências para lint/test em CI e desenvolvimento local.
+# Dependências específicas de deploy ficam em api/requirements.txt e
+# dashboard/requirements.txt.
+
+-r api/requirements.txt
+
+pyspark==3.5.3
+pytest==8.3.3
+httpx==0.27.2
+mongomock==4.2.0.post1
+jsonschema==4.23.0
+faker==30.3.0
+confluent-kafka==2.5.3
+ruff==0.6.9

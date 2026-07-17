@@ -1,0 +1,102 @@
+-- Databricks notebook source
+-- Bootstrap Unity Catalog: catálogos dev/prod, schemas, grants,
+-- mascaramento de PII e row-level security por seguradora.
+-- Execução: uma vez por ambiente (dev/prod), via job de setup ou manualmente
+-- por um admin do workspace. Parametrizado por :catalog (widget).
+
+-- COMMAND ----------
+
+-- MAGIC %python
+-- MAGIC dbutils.widgets.text("catalog", "consent_pipeline_dev")
+-- MAGIC catalog = dbutils.widgets.get("catalog")
+-- MAGIC spark.sql(f"SET var.catalog = {catalog}")
+
+-- COMMAND ----------
+
+CREATE CATALOG IF NOT EXISTS IDENTIFIER(:catalog);
+
+CREATE SCHEMA IF NOT EXISTS IDENTIFIER(:catalog || '.bronze');
+CREATE SCHEMA IF NOT EXISTS IDENTIFIER(:catalog || '.silver');
+
+-- COMMAND ----------
+
+-- Tabela Bronze (criada implicitamente pelo Autoloader, DDL aqui apenas
+-- documenta o contrato esperado para revisão/CI).
+CREATE TABLE IF NOT EXISTS IDENTIFIER(:catalog || '.bronze.cadastro_clientes') (
+  cliente_id STRING NOT NULL,
+  nome_cliente STRING,
+  cpf STRING,
+  banco_origem STRING,
+  _ingested_at TIMESTAMP,
+  _source_file STRING
+) USING DELTA;
+
+-- COMMAND ----------
+
+CREATE TABLE IF NOT EXISTS IDENTIFIER(:catalog || '.silver.consentimentos') (
+  cliente_id STRING NOT NULL,
+  banco_origem STRING,
+  seguradora_id STRING,
+  nome_cliente STRING,
+  cpf STRING,
+  timestamp TIMESTAMP NOT NULL,
+  offset BIGINT,
+  tipo_consentimento STRING NOT NULL,
+  escopo ARRAY<STRING>,
+  status STRING
+)
+USING DELTA
+PARTITIONED BY (banco_origem);
+
+CREATE TABLE IF NOT EXISTS IDENTIFIER(:catalog || '.silver.consentimentos_quarentena') (
+  raw_json STRING,
+  offset BIGINT,
+  kafka_timestamp TIMESTAMP,
+  _batch_id BIGINT
+) USING DELTA;
+
+-- COMMAND ----------
+
+-- Grupos: data_engineers (acesso total), analysts (leitura mascarada)
+GRANT USE CATALOG ON CATALOG IDENTIFIER(:catalog) TO `data_engineers`;
+GRANT USE CATALOG ON CATALOG IDENTIFIER(:catalog) TO `analysts`;
+
+GRANT USE SCHEMA, SELECT, MODIFY ON SCHEMA IDENTIFIER(:catalog || '.bronze') TO `data_engineers`;
+GRANT USE SCHEMA, SELECT, MODIFY ON SCHEMA IDENTIFIER(:catalog || '.silver') TO `data_engineers`;
+
+GRANT USE SCHEMA, SELECT ON SCHEMA IDENTIFIER(:catalog || '.silver') TO `analysts`;
+
+-- COMMAND ----------
+
+-- Mascaramento de PII: cpf e nome_cliente ficam mascarados para quem não
+-- pertence ao grupo data_engineers.
+CREATE OR REPLACE FUNCTION IDENTIFIER(:catalog || '.silver.mask_cpf')(cpf STRING)
+RETURN CASE
+  WHEN is_account_group_member('data_engineers') THEN cpf
+  ELSE CONCAT('***.***.***-', RIGHT(cpf, 2))
+END;
+
+CREATE OR REPLACE FUNCTION IDENTIFIER(:catalog || '.silver.mask_nome')(nome STRING)
+RETURN CASE
+  WHEN is_account_group_member('data_engineers') THEN nome
+  ELSE 'CLIENTE PROTEGIDO'
+END;
+
+ALTER TABLE IDENTIFIER(:catalog || '.silver.consentimentos')
+  ALTER COLUMN cpf SET MASK IDENTIFIER(:catalog || '.silver.mask_cpf');
+
+ALTER TABLE IDENTIFIER(:catalog || '.silver.consentimentos')
+  ALTER COLUMN nome_cliente SET MASK IDENTIFIER(:catalog || '.silver.mask_nome');
+
+-- COMMAND ----------
+
+-- Row-level security: analistas só veem registros da seguradora à qual
+-- pertencem. `current_user_seguradora()` é um placeholder: precisa ser
+-- criada como função SQL que faz lookup em uma tabela de mapeamento
+-- usuário -> seguradora_id (fora do escopo desta demo).
+CREATE OR REPLACE FUNCTION IDENTIFIER(:catalog || '.silver.filter_seguradora')(seguradora_id STRING)
+RETURN is_account_group_member('data_engineers')
+  OR seguradora_id = current_user_seguradora();
+
+ALTER TABLE IDENTIFIER(:catalog || '.silver.consentimentos')
+  SET ROW FILTER IDENTIFIER(:catalog || '.silver.filter_seguradora') ON (seguradora_id);
