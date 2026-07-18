@@ -18,8 +18,6 @@
 
 -- MAGIC %python
 -- MAGIC dbutils.widgets.text("catalog", "consent_pipeline_dev")
--- MAGIC catalog = dbutils.widgets.get("catalog")
--- MAGIC spark.sql(f"SET var.catalog = {catalog}")
 
 -- COMMAND ----------
 
