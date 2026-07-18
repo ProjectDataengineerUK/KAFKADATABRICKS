@@ -133,5 +133,5 @@ resource "mongodbatlas_database_user" "app" {
 resource "mongodbatlas_project_ip_access_list" "allow_all" {
   project_id = mongodbatlas_project.this.id
   cidr_block = "0.0.0.0/0"
-  comment    = "Demo de portfólio (Databricks Free Edition e Render não têm IP fixo) — restringir se sair do escopo de demo"
+  comment    = "Demo de portfolio - IPs dinamicos (Free Edition/Render), restringir depois"
 }
