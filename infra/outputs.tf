@@ -20,8 +20,8 @@ output "kafka_topic" {
 }
 
 output "mongo_uri" {
-  description = "Valor para MONGO_URI — monte com o usuário/senha de mongodbatlas_database_user.app"
-  value       = "mongodb+srv://${mongodbatlas_database_user.app.username}:<senha>@${replace(mongodbatlas_cluster.this.connection_strings[0].standard_srv, "mongodb+srv://", "")}"
+  description = "Valor para MONGO_URI, pronto para uso — senha já percent-encoded (necessário por causa de caracteres como '+' que a URI do Mongo exige escapar)"
+  value       = "mongodb+srv://${mongodbatlas_database_user.app.username}:${urlencode(var.mongodbatlas_app_password)}@${replace(mongodbatlas_cluster.this.connection_strings[0].standard_srv, "mongodb+srv://", "")}"
   sensitive   = true
 }
 
