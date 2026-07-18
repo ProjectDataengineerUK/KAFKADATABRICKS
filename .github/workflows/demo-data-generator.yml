@@ -1,0 +1,43 @@
+name: Demo Data Generator — simula tráfego do app bancário
+
+# Mantém o pipeline "vivo": gera o cadastro sintético (clientes/bancos/
+# seguradoras), sobe pro Volume Unity Catalog que o Autoloader lê, e publica
+# eventos de consentimento no Kafka. O consent_pipeline_job (Databricks)
+# já tem trigger periódico próprio (ver databricks/resources/jobs.yml) que
+# consome esses dados e escreve no MongoDB — este workflow só alimenta a
+# ponta de entrada (Volume + Kafka), simulando o app do banco publicando
+# eventos reais.
+
+on:
+  schedule:
+    - cron: "7,27,47 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  generate-and-publish:
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: databricks/setup-cli@main
+      - name: Instalar dependências
+        run: pip install -r requirements-dev.txt
+      - name: Gerar cadastro sintético (clientes/bancos/seguradoras)
+        run: python -m producer.generate_reference_data --clientes 100
+      - name: Subir cadastro pro Volume Databricks (landing zone)
+        run: |
+          databricks fs cp sample_data/clientes.csv "dbfs:/Volumes/consent_pipeline_dev/landing/cadastro/clientes.csv" --overwrite
+          databricks fs cp sample_data/bancos.csv "dbfs:/Volumes/consent_pipeline_dev/landing/cadastro/bancos.csv" --overwrite
+          databricks fs cp sample_data/seguradoras.csv "dbfs:/Volumes/consent_pipeline_dev/landing/cadastro/seguradoras.csv" --overwrite
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+      - name: Publicar eventos de consentimento no Kafka
+        run: python -m producer.consent_event_producer --eventos 50
+        env:
+          KAFKA_BOOTSTRAP_SERVERS: ${{ secrets.KAFKA_BOOTSTRAP_SERVERS }}
+          KAFKA_API_KEY: ${{ secrets.KAFKA_API_KEY }}
+          KAFKA_API_SECRET: ${{ secrets.KAFKA_API_SECRET }}
