@@ -31,10 +31,14 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         return cls(
-            kafka_bootstrap_servers=_require("KAFKA_BOOTSTRAP_SERVERS"),
+            # Kafka fica opcional aqui: só a API e o mongo_client usam esta
+            # classe, e nenhum dos dois lê estes três campos (o producer lê
+            # KAFKA_* direto do ambiente) — exigi-los quebrava o deploy da
+            # API, que não tem/não precisa de credenciais Kafka no Render.
+            kafka_bootstrap_servers=os.environ.get("KAFKA_BOOTSTRAP_SERVERS", ""),
             kafka_topic=os.environ.get("KAFKA_TOPIC", "consentimentos"),
-            kafka_api_key=_require("KAFKA_API_KEY"),
-            kafka_api_secret=_require("KAFKA_API_SECRET"),
+            kafka_api_key=os.environ.get("KAFKA_API_KEY", ""),
+            kafka_api_secret=os.environ.get("KAFKA_API_SECRET", ""),
             mongo_uri=_require("MONGO_URI"),
             mongo_db_name=os.environ.get("MONGO_DB_NAME", "susep_simulado"),
             jwt_secret=_require("JWT_SECRET"),
