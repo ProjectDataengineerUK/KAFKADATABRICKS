@@ -18,6 +18,7 @@
 
 -- MAGIC %python
 -- MAGIC dbutils.widgets.text("catalog", "consent_pipeline_dev")
+-- MAGIC catalog = dbutils.widgets.get("catalog")
 
 -- COMMAND ----------
 
@@ -75,16 +76,22 @@ CREATE TABLE IF NOT EXISTS IDENTIFIER(:catalog || '.silver.consentimentos_quaren
 
 -- COMMAND ----------
 
--- Grupos: data_engineers (acesso total), analysts (leitura mascarada)
-GRANT USE CATALOG ON CATALOG IDENTIFIER(:catalog) TO `data_engineers`;
-GRANT USE CATALOG ON CATALOG IDENTIFIER(:catalog) TO `analysts`;
-
-GRANT USE SCHEMA, SELECT, MODIFY ON SCHEMA IDENTIFIER(:catalog || '.landing') TO `data_engineers`;
-GRANT USE SCHEMA, SELECT, MODIFY ON SCHEMA IDENTIFIER(:catalog || '.bronze') TO `data_engineers`;
-GRANT USE SCHEMA, SELECT, MODIFY ON SCHEMA IDENTIFIER(:catalog || '.silver') TO `data_engineers`;
-GRANT USE SCHEMA, READ VOLUME, WRITE VOLUME ON SCHEMA IDENTIFIER(:catalog || '.ops') TO `data_engineers`;
-
-GRANT USE SCHEMA, SELECT ON SCHEMA IDENTIFIER(:catalog || '.silver') TO `analysts`;
+-- MAGIC %python
+-- MAGIC # GRANT não suporta a cláusula IDENTIFIER() (ver
+-- MAGIC # https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-names-identifier-clause),
+-- MAGIC # por isso o nome do catálogo é interpolado diretamente aqui em vez de
+-- MAGIC # usar o parameter marker :catalog como nas células SQL acima.
+-- MAGIC # Grupos: data_engineers (acesso total), analysts (leitura mascarada)
+-- MAGIC for stmt in [
+-- MAGIC     f"GRANT USE CATALOG ON CATALOG `{catalog}` TO `data_engineers`",
+-- MAGIC     f"GRANT USE CATALOG ON CATALOG `{catalog}` TO `analysts`",
+-- MAGIC     f"GRANT USE SCHEMA, SELECT, MODIFY ON SCHEMA `{catalog}`.landing TO `data_engineers`",
+-- MAGIC     f"GRANT USE SCHEMA, SELECT, MODIFY ON SCHEMA `{catalog}`.bronze TO `data_engineers`",
+-- MAGIC     f"GRANT USE SCHEMA, SELECT, MODIFY ON SCHEMA `{catalog}`.silver TO `data_engineers`",
+-- MAGIC     f"GRANT USE SCHEMA, READ VOLUME, WRITE VOLUME ON SCHEMA `{catalog}`.ops TO `data_engineers`",
+-- MAGIC     f"GRANT USE SCHEMA, SELECT ON SCHEMA `{catalog}`.silver TO `analysts`",
+-- MAGIC ]:
+-- MAGIC     spark.sql(stmt)
 
 -- COMMAND ----------
 
@@ -102,11 +109,18 @@ RETURN CASE
   ELSE 'CLIENTE PROTEGIDO'
 END;
 
-ALTER TABLE IDENTIFIER(:catalog || '.silver.consentimentos')
-  ALTER COLUMN cpf SET MASK IDENTIFIER(:catalog || '.silver.mask_cpf');
+-- COMMAND ----------
 
-ALTER TABLE IDENTIFIER(:catalog || '.silver.consentimentos')
-  ALTER COLUMN nome_cliente SET MASK IDENTIFIER(:catalog || '.silver.mask_nome');
+-- MAGIC %python
+-- MAGIC # SET MASK referencia a função mascaradora como argumento (não como
+-- MAGIC # alvo do ALTER TABLE), mesma limitação do GRANT acima com IDENTIFIER().
+-- MAGIC for stmt in [
+-- MAGIC     f"ALTER TABLE `{catalog}`.silver.consentimentos "
+-- MAGIC     f"ALTER COLUMN cpf SET MASK `{catalog}`.silver.mask_cpf",
+-- MAGIC     f"ALTER TABLE `{catalog}`.silver.consentimentos "
+-- MAGIC     f"ALTER COLUMN nome_cliente SET MASK `{catalog}`.silver.mask_nome",
+-- MAGIC ]:
+-- MAGIC     spark.sql(stmt)
 
 -- COMMAND ----------
 
@@ -118,5 +132,11 @@ CREATE OR REPLACE FUNCTION IDENTIFIER(:catalog || '.silver.filter_seguradora')(s
 RETURN is_account_group_member('data_engineers')
   OR seguradora_id = current_user_seguradora();
 
-ALTER TABLE IDENTIFIER(:catalog || '.silver.consentimentos')
-  SET ROW FILTER IDENTIFIER(:catalog || '.silver.filter_seguradora') ON (seguradora_id);
+-- COMMAND ----------
+
+-- MAGIC %python
+-- MAGIC # Mesma limitação: SET ROW FILTER referencia a função como argumento.
+-- MAGIC spark.sql(
+-- MAGIC     f"ALTER TABLE `{catalog}`.silver.consentimentos "
+-- MAGIC     f"SET ROW FILTER `{catalog}`.silver.filter_seguradora ON (seguradora_id)"
+-- MAGIC )
