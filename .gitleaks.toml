@@ -1,0 +1,10 @@
+title = "gitleaks config — consent pipeline"
+
+[extend]
+useDefault = true
+
+[[allowlist]]
+description = "Template file with placeholder values only, never real secrets"
+paths = [
+  '''\.env\.example$''',
+]
