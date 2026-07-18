@@ -4,6 +4,14 @@ bundle:
 include:
   - resources/jobs.yml
 
+# Os jobs referenciam notebooks em ../../notebooks (fora da raiz do bundle,
+# que é este diretório databricks/) — sem isto o deploy falha com
+# "path .../notebooks/*.py is not contained in sync root path".
+sync:
+  paths:
+    - .
+    - ../notebooks
+
 variables:
   catalog:
     description: >-
