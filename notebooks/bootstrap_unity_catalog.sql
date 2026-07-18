@@ -125,12 +125,17 @@ END;
 -- COMMAND ----------
 
 -- Row-level security: analistas só veem registros da seguradora à qual
--- pertencem. `current_user_seguradora()` é um placeholder: precisa ser
--- criada como função SQL que faz lookup em uma tabela de mapeamento
--- usuário -> seguradora_id (fora do escopo desta demo).
+-- pertencem. `current_user_seguradora` é um placeholder que sempre
+-- retorna NULL (fail-closed: nenhuma seguradora liberada) até ser trocada
+-- por um lookup real usuário -> seguradora_id (fora do escopo desta demo).
+CREATE OR REPLACE FUNCTION IDENTIFIER(:catalog || '.silver.current_user_seguradora')()
+RETURNS STRING
+COMMENT 'Placeholder: substituir por lookup real usuário -> seguradora_id.'
+RETURN CAST(NULL AS STRING);
+
 CREATE OR REPLACE FUNCTION IDENTIFIER(:catalog || '.silver.filter_seguradora')(seguradora_id STRING)
 RETURN is_account_group_member('data_engineers')
-  OR seguradora_id = current_user_seguradora();
+  OR seguradora_id = IDENTIFIER(:catalog || '.silver.current_user_seguradora')();
 
 -- COMMAND ----------
 
