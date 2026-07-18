@@ -129,7 +129,9 @@ Isso cria o cluster Kafka Basic + tópico `consentimentos` no Confluent, e o pro
 ### 4. Configure o Databricks Free Edition
 
 ```bash
-pip install databricks-cli
+# CLI oficial (o pacote pip "databricks-cli" é a versão legada e não
+# suporta "bundle" — ver https://docs.databricks.com/dev-tools/cli/install.html)
+curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
 databricks configure --host <sua-url-do-workspace> --token   # PAT gerado em User Settings > Developer > Access tokens
 
 # Secret scope nativo (sem Key Vault/nenhum cloud provider)

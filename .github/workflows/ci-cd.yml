@@ -63,14 +63,30 @@ jobs:
     environment: dev
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: databricks/setup-cli@main
+      - name: Secret scope nativo (Kafka + Mongo, sem Key Vault)
+        run: |
+          databricks secrets create-scope consent-pipeline || echo "scope já existe, seguindo"
+          databricks secrets put-secret consent-pipeline kafka-bootstrap --string-value "$KAFKA_BOOTSTRAP_SERVERS"
+          databricks secrets put-secret consent-pipeline kafka-api-key --string-value "$KAFKA_API_KEY"
+          databricks secrets put-secret consent-pipeline kafka-api-secret --string-value "$KAFKA_API_SECRET"
+          databricks secrets put-secret consent-pipeline mongo-uri --string-value "$MONGO_URI"
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+          KAFKA_BOOTSTRAP_SERVERS: ${{ secrets.KAFKA_BOOTSTRAP_SERVERS }}
+          KAFKA_API_KEY: ${{ secrets.KAFKA_API_KEY }}
+          KAFKA_API_SECRET: ${{ secrets.KAFKA_API_SECRET }}
+          MONGO_URI: ${{ secrets.MONGO_URI }}
       - name: Deploy Databricks Asset Bundle (dev)
         working-directory: databricks
-        run: |
-          pip install databricks-cli
-          databricks bundle deploy --target dev
+        run: databricks bundle deploy --target dev
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+      - name: Bootstrap Unity Catalog (catálogos/schemas/volumes + governança)
+        working-directory: databricks
+        run: databricks bundle run bootstrap_unity_catalog_job --target dev
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
@@ -84,17 +100,19 @@ jobs:
     environment: prod
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: databricks/setup-cli@main
       - name: Deploy Databricks Asset Bundle (prod)
         working-directory: databricks
-        run: |
-          pip install databricks-cli
-          databricks bundle deploy --target prod
+        run: databricks bundle deploy --target prod
         env:
           # Free Edition = um workspace só; se você tiver uma segunda conta
           # Databricks para "prod" de verdade, troque este secret pelo host
           # dela (DATABRICKS_HOST_PROD / DATABRICKS_TOKEN_PROD).
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+      - name: Bootstrap Unity Catalog (catálogos/schemas/volumes + governança)
+        working-directory: databricks
+        run: databricks bundle run bootstrap_unity_catalog_job --target prod
+        env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
