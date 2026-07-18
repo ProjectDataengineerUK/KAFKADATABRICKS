@@ -8,3 +8,10 @@ builtins = ["dbutils", "spark"]
 # Notebooks exportados do Databricks têm imports após os marcadores
 # "# COMMAND ----------"/"%pip install", violando a ordem exigida por E402.
 "notebooks/*.py" = ["E402"]
+
+[tool.pytest.ini_options]
+# tests/ não tem __init__.py, então o pytest não insere a raiz do repo no
+# sys.path por conta própria — sem isso, "from api.main import ..." e
+# "from src.common..." falham quando o comando é `pytest` (em vez de
+# `python -m pytest`, que adiciona o cwd automaticamente).
+pythonpath = ["."]
