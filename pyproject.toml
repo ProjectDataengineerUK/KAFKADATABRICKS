@@ -1,0 +1,10 @@
+[tool.ruff]
+# dbutils/spark são injetados pelo runtime do Databricks nos notebooks
+# (notebooks/*.py) — não existem em execução local, então o ruff os trata
+# como nomes indefinidos (F821) sem esta declaração.
+builtins = ["dbutils", "spark"]
+
+[tool.ruff.lint.per-file-ignores]
+# Notebooks exportados do Databricks têm imports após os marcadores
+# "# COMMAND ----------"/"%pip install", violando a ordem exigida por E402.
+"notebooks/*.py" = ["E402"]
