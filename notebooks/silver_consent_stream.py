@@ -45,6 +45,11 @@ kafka_df = (
         dbutils.secrets.get(secret_scope, "kafka-bootstrap"),
     )
     .option("kafka.security.protocol", "SASL_SSL")
+    # Sem sasl.mechanism explícito, o cliente Kafka cai no mecanismo SASL
+    # default (Kerberos/GSSAPI) em vez de usar o PLAIN configurado no jaas
+    # config abaixo — falha com "No serviceName defined in either JAAS or
+    # Kafka config" (Confluent Cloud usa SASL/PLAIN com API Key/Secret).
+    .option("kafka.sasl.mechanism", "PLAIN")
     .option(
         "kafka.sasl.jaas.config",
         f'org.apache.kafka.common.security.plain.PlainLoginModule required '
@@ -52,7 +57,11 @@ kafka_df = (
         f'password="{dbutils.secrets.get(secret_scope, "kafka-api-secret")}";',
     )
     .option("subscribe", "consentimentos")
-    .option("startingOffsets", "latest")
+    # earliest na primeira implantação: consentimento é dado sensível/
+    # compliance, não faz sentido ignorar eventos já publicados antes deste
+    # job existir (ver guia técnico, Rodada 1 pergunta 13). Só importa na
+    # criação do checkpoint — depois disso o offset salvo manda.
+    .option("startingOffsets", "earliest")
     .load()
 )
 
