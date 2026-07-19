@@ -25,7 +25,7 @@ def obter_token(username: str, password: str) -> str | None:
     resposta = requests.post(
         f"{API_BASE_URL}/token",
         data={"username": username, "password": password},
-        timeout=10,
+        timeout=60,
     )
     if resposta.status_code != 200:
         return None
@@ -36,7 +36,7 @@ def buscar_consentimentos(cliente_id: str, token: str) -> dict | None:
     resposta = requests.get(
         f"{API_BASE_URL}/clientes/{cliente_id}/consentimentos",
         headers={"Authorization": f"Bearer {token}"},
-        timeout=10,
+        timeout=60,
     )
     if resposta.status_code == 404:
         return None
@@ -47,7 +47,7 @@ def buscar_consentimentos(cliente_id: str, token: str) -> dict | None:
 @st.cache_data(ttl=20)
 def obter_status_pipeline() -> dict | None:
     try:
-        resposta = requests.get(f"{API_BASE_URL}/status", timeout=10)
+        resposta = requests.get(f"{API_BASE_URL}/status", timeout=60)
         resposta.raise_for_status()
         return resposta.json()
     except requests.RequestException:
@@ -57,7 +57,7 @@ def obter_status_pipeline() -> dict | None:
 @st.cache_data(ttl=20)
 def obter_health_api() -> bool:
     try:
-        resposta = requests.get(f"{API_BASE_URL}/health", timeout=10)
+        resposta = requests.get(f"{API_BASE_URL}/health", timeout=60)
         return resposta.status_code == 200
     except requests.RequestException:
         return False
@@ -69,7 +69,7 @@ def obter_workflow_runs() -> list[dict]:
         resposta = requests.get(
             f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs",
             params={"per_page": 8},
-            timeout=10,
+            timeout=60,
         )
         resposta.raise_for_status()
         return resposta.json().get("workflow_runs", [])
