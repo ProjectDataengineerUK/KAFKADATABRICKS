@@ -42,29 +42,49 @@ CREATE VOLUME IF NOT EXISTS IDENTIFIER(:catalog || '.ops.checkpoints');
 -- Tabelas Bronze (criadas implicitamente pelo Autoloader, DDL aqui apenas
 -- documenta o contrato esperado para revisão/CI) — uma por CSV de cadastro
 -- (clientes.csv, bancos.csv, seguradoras.csv), cada um com seu próprio
--- Autoloader em notebooks/bronze_autoloader.py.
+-- Autoloader em notebooks/bronze_autoloader.py. `_rescued_data` é sempre
+-- incluída pelo Auto Loader por padrão (captura dado fora do schema
+-- esperado) — precisa constar aqui, senão a escrita falha com
+-- DELTA_METADATA_MISMATCH (Table ACLs bloqueiam auto-merge de schema).
 CREATE TABLE IF NOT EXISTS IDENTIFIER(:catalog || '.bronze.cadastro_clientes') (
   cliente_id STRING NOT NULL,
   nome_cliente STRING,
   cpf STRING,
   banco_origem STRING,
   _ingested_at TIMESTAMP,
-  _source_file STRING
+  _source_file STRING,
+  _rescued_data STRING
 ) USING DELTA;
 
 CREATE TABLE IF NOT EXISTS IDENTIFIER(:catalog || '.bronze.bancos') (
   banco_id STRING NOT NULL,
   nome STRING,
   _ingested_at TIMESTAMP,
-  _source_file STRING
+  _source_file STRING,
+  _rescued_data STRING
 ) USING DELTA;
 
 CREATE TABLE IF NOT EXISTS IDENTIFIER(:catalog || '.bronze.seguradoras') (
   seguradora_id STRING NOT NULL,
   nome STRING,
   _ingested_at TIMESTAMP,
-  _source_file STRING
+  _source_file STRING,
+  _rescued_data STRING
 ) USING DELTA;
+
+-- COMMAND ----------
+
+-- MAGIC %python
+-- MAGIC # Corrige tabelas já criadas antes de _rescued_data existir (CREATE
+-- MAGIC # TABLE IF NOT EXISTS acima não altera uma tabela já existente com
+-- MAGIC # schema diferente). ADD COLUMN não suporta IF NOT EXISTS em SQL puro
+-- MAGIC # — rodar de novo falharia com "coluna já existe" — por isso o try/except.
+-- MAGIC for tabela in ["cadastro_clientes", "bancos", "seguradoras"]:
+-- MAGIC     try:
+-- MAGIC         spark.sql(f"ALTER TABLE `{catalog}`.bronze.{tabela} ADD COLUMN _rescued_data STRING")
+-- MAGIC     except Exception as erro:
+-- MAGIC         if "already exists" not in str(erro).lower() and "COLUMN_ALREADY_EXISTS" not in str(erro):
+-- MAGIC             raise
 
 -- COMMAND ----------
 
