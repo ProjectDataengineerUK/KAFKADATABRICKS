@@ -6,11 +6,14 @@ include:
 
 # Os jobs referenciam notebooks em ../../notebooks (fora da raiz do bundle,
 # que é este diretório databricks/) — sem isto o deploy falha com
-# "path .../notebooks/*.py is not contained in sync root path".
+# "path .../notebooks/*.py is not contained in sync root path". Os notebooks
+# também importam `from src.common...` — sem sincronizar ../src, o notebook
+# falha em runtime com "ModuleNotFoundError: No module named 'src'".
 sync:
   paths:
     - .
     - ../notebooks
+    - ../src
 
 variables:
   catalog:
