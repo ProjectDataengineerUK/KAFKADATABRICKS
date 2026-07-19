@@ -9,32 +9,35 @@ from __future__ import annotations
 
 ETAPAS = [
     {
-        "titulo": "1. Bronze — Autoloader (notebooks/bronze_autoloader.py)",
+        "titulo": "1. Bronze — 3 Autoloaders (notebooks/bronze_autoloader.py)",
         "conceito": (
-            "Ingestão incremental do cadastro (clientes/bancos/seguradoras) via "
-            "**Auto Loader**, com schema location e checkpoint location em pastas "
-            "separadas — reprocessar (apagar checkpoint) não obriga reinferir "
-            "schema, e vice-versa. `trigger(availableNow=True)` processa tudo que "
-            "está disponível e **para** — não fica cluster de streaming ligado "
-            "24/7, é o mesmo ponto de economia do guia (seção 11.3)."
+            "Um Autoloader por CSV (clientes/bancos/seguradoras — schemas "
+            "diferentes não podem compartilhar stream/tabela), cada um com "
+            "schema location e checkpoint próprios — reprocessar (apagar "
+            "checkpoint) não obriga reinferir schema, e vice-versa. "
+            "`trigger(availableNow=True)` processa tudo que está disponível e "
+            "**para**: o Databricks Free Edition nem suporta trigger de "
+            "streaming contínuo, o que por acaso já é o ponto de economia "
+            "recomendado na seção 11.3 do guia."
         ),
         "codigo": '''bronze_df = (
     spark.readStream.format("cloudFiles")
     .option("cloudFiles.format", "csv")
-    .option("cloudFiles.schemaLocation", f"{checkpoint_base}/bronze/schema")
+    .option("cloudFiles.schemaLocation", f"{checkpoint_base}/bronze/schema/{checkpoint_key}")
     .option("cloudFiles.schemaEvolutionMode", "addNewColumns")
     .option("header", "true")
+    .option("pathGlobFilter", nome_arquivo)  # clientes.csv | bancos.csv | seguradoras.csv
     .load(raw_path)
     .withColumn("_ingested_at", current_timestamp())
-    .withColumn("_source_file", input_file_name())
+    .withColumn("_source_file", col("_metadata.file_path"))
 )
 
 query = (
     bronze_df.writeStream.format("delta")
-    .option("checkpointLocation", f"{checkpoint_base}/bronze/consentimento_cadastro")
+    .option("checkpointLocation", f"{checkpoint_base}/bronze/{checkpoint_key}")
     .outputMode("append")
     .trigger(availableNow=True)  # processa e desliga — não é cluster 24/7
-    .toTable("bronze.cadastro_clientes")
+    .toTable(tabela_destino)
 )''',
         "prova": "workflow_status",
     },
@@ -66,7 +69,33 @@ def upsert_to_silver(microbatch_df, batch_id):
         "prova": "consulta_cliente",
     },
     {
-        "titulo": "3. Mongo Sink — struct aninhado (notebooks/mongo_sink.py + src/common/transforms.py)",
+        "titulo": "3. Gold — métricas agregadas (notebooks/gold_metricas.py)",
+        "conceito": (
+            "Completa a arquitetura medalhão: agrega a Silver por dia/banco/"
+            "seguradora/tipo de consentimento — camada de consumo analítico "
+            "(BI/dashboards). Recalcula o dia inteiro a cada micro-batch em "
+            "vez de somar incrementalmente, porque `total_clientes_distintos` "
+            "não é aditivo entre batches (um cliente pode aparecer em "
+            "micro-batches diferentes do mesmo dia)."
+        ),
+        "codigo": '''agregado_df = (
+    spark.table(f"{catalog}.silver.consentimentos")
+    .withColumn("data_referencia", F.to_date("timestamp"))
+    .filter(F.col("data_referencia").isin(datas_afetadas))
+    .groupBy("data_referencia", "banco_origem", "seguradora_id", "tipo_consentimento")
+    .agg(
+        F.count("*").alias("total_eventos"),
+        F.countDistinct("cliente_id").alias("total_clientes_distintos"),
+    )
+)
+
+target = DeltaTable.forName(spark, f"{catalog}.gold.metricas_consentimento")
+target.alias("t").merge(agregado_df.alias("s"), "...chave composta...") \\
+    .whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()''',
+        "prova": None,
+    },
+    {
+        "titulo": "4. Mongo Sink — struct aninhado (notebooks/mongo_sink.py + src/common/transforms.py)",
         "conceito": (
             "Lê a Silver como stream e faz o caminho **inverso** do explode: "
             "`groupBy` + `collect_list(struct(...))` remonta um documento por "
@@ -90,7 +119,7 @@ documento_df.write.format("mongodb").mode("append") \\
         "prova": "documento_raw",
     },
     {
-        "titulo": "4. Governança — Unity Catalog (notebooks/bootstrap_unity_catalog.sql)",
+        "titulo": "5. Governança — Unity Catalog (notebooks/bootstrap_unity_catalog.sql)",
         "conceito": (
             "GRANT centralizado por grupo (`data_engineers` acesso total, "
             "`analysts` leitura mascarada), **column masking** em `cpf`/`nome_cliente` "
@@ -115,7 +144,7 @@ ALTER TABLE `{catalog}`.silver.consentimentos
         "prova": None,
     },
     {
-        "titulo": "5. Custo & Otimização — decisões reais deste projeto",
+        "titulo": "6. Custo & Otimização — decisões reais deste projeto",
         "conceito": "Cada escolha de custo do guia (seção 11), mapeada para o que este projeto de fato faz — não teoria solta.",
         "codigo": None,
         "prova": "checklist_custo",
@@ -124,12 +153,8 @@ ALTER TABLE `{catalog}`.silver.consentimentos
 
 CHECKLIST_CUSTO = [
     (
-        "`trigger(availableNow=True)` no Autoloader",
-        "Bronze processa e desliga — não paga cluster de streaming 24/7 só para ingerir 3 CSVs pequenos.",
-    ),
-    (
-        "`trigger(processingTime=\"1 minute\")` na Silver/Mongo sink",
-        "Trade-off deliberado: latência de até 1 min é aceitável para uma demo, evita o custo do modo `continuous`.",
+        "`trigger(availableNow=True)` em todas as tasks (Bronze/Silver/Gold/Mongo)",
+        "Databricks Free Edition nem suporta trigger de streaming contínuo ([INFINITE_STREAMING_TRIGGER_NOT_SUPPORTED]) — cada task processa o disponível e desliga, sem pagar cluster de streaming 24/7.",
     ),
     (
         "Databricks Free Edition",

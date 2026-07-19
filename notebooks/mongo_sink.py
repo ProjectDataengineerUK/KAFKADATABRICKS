@@ -81,9 +81,10 @@ query = (
     spark.readStream.table("silver.consentimentos")
     .writeStream.foreachBatch(write_to_mongo)
     .option("checkpointLocation", f"{checkpoint_base}/mongo/consentimentos")
-    .trigger(processingTime="1 minute")
+    # Databricks Free Edition não suporta trigger de streaming contínuo — ver
+    # comentário equivalente em silver_consent_stream.py.
+    .trigger(availableNow=True)
     .start()
 )
 
-# Sem awaitTermination() — ver comentário equivalente em silver_consent_stream.py:
-# bloquear aqui impediria qualquer task downstream (depends_on) de rodar.
+query.awaitTermination()

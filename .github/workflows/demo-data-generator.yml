@@ -41,15 +41,15 @@ jobs:
           KAFKA_BOOTSTRAP_SERVERS: ${{ secrets.KAFKA_BOOTSTRAP_SERVERS }}
           KAFKA_API_KEY: ${{ secrets.KAFKA_API_KEY }}
           KAFKA_API_SECRET: ${{ secrets.KAFKA_API_SECRET }}
-      - name: Garantir que o consent_pipeline_job está rodando
+      - name: Disparar o consent_pipeline_job (processa e desliga)
         working-directory: databricks
-        # As tasks silver_consent_stream/mongo_sink são streaming contínuo
-        # (awaitTermination sem timeout) — não terminam sozinhas, então
-        # NUNCA use bundle run aqui sem --no-wait (travaria o workflow).
-        # Se já tiver uma run ativa, o comando falha "already running";
-        # isso é o estado esperado (streaming já processando o Kafka a
-        # cada 1 min), não um erro real.
-        run: databricks bundle run consent_pipeline_job --target dev --no-wait || echo "job já em execução (streaming contínuo) — ok"
+        # Databricks Free Edition não suporta trigger de streaming contínuo,
+        # então todas as tasks usam availableNow=True (processam o disponível
+        # e terminam) — cada disparo aqui processa o batch atual e desliga
+        # sozinho. --no-wait evita bloquear este workflow esperando o
+        # processamento terminar; se já houver uma run ativa (raro, já que é
+        # rápido), ignoramos o erro em vez de falhar o workflow.
+        run: databricks bundle run consent_pipeline_job --target dev --no-wait || echo "job já em execução — ok"
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}

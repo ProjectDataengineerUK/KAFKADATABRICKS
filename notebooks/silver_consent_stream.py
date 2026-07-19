@@ -105,19 +105,22 @@ def write_quarentena(microbatch_df, batch_id: int) -> None:
 silver_query = (
     exploded_df.writeStream.foreachBatch(upsert_to_silver)
     .option("checkpointLocation", f"{checkpoint_base}/silver/consentimentos")
-    .trigger(processingTime="1 minute")
+    # Databricks Free Edition não suporta trigger de streaming contínuo
+    # ([INFINITE_STREAMING_TRIGGER_NOT_SUPPORTED]) — availableNow processa o
+    # que está disponível e termina, o que também torna correto o
+    # awaitTermination() abaixo (diferente de trigger contínuo, aqui a query
+    # de fato termina sozinha) e é o que permite mongo_sink/gold_metricas
+    # (depends_on) rodarem em seguida.
+    .trigger(availableNow=True)
     .start()
 )
 
 quarentena_query = (
     quarentena_df.writeStream.foreachBatch(write_quarentena)
     .option("checkpointLocation", f"{checkpoint_base}/silver/quarentena")
-    .trigger(processingTime="1 minute")
+    .trigger(availableNow=True)
     .start()
 )
 
-# Sem awaitTermination(): dentro de um Databricks Job, essa chamada bloqueia
-# o notebook para sempre e impede a task de reportar sucesso — o que por sua
-# vez impede QUALQUER task downstream (depends_on) de rodar, já que ela
-# nunca é satisfeita. O próprio Jobs service já mantém o run ativo enquanto
-# houver streaming query rodando, sem precisar bloquear aqui.
+silver_query.awaitTermination()
+quarentena_query.awaitTermination()
