@@ -80,7 +80,11 @@ exploded_df = explode_consent_items(validos_df)
 
 # COMMAND ----------
 
-cadastro_df = spark.table("bronze.cadastro_clientes")
+# Só cliente_id/nome_cliente/cpf: o evento Kafka já traz banco_origem (ver
+# CONSENT_SCHEMA em transforms.py), e bronze.cadastro_clientes também tem
+# uma coluna banco_origem própria — trazer as duas causa
+# [AMBIGUOUS_REFERENCE] no MERGE (s.banco_origem vira ambíguo).
+cadastro_df = spark.table("bronze.cadastro_clientes").select("cliente_id", "nome_cliente", "cpf")
 
 
 def upsert_to_silver(microbatch_df, batch_id: int) -> None:
