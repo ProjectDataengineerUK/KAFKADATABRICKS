@@ -28,7 +28,7 @@ from delta.tables import DeltaTable
 
 
 def upsert_to_gold(microbatch_df, batch_id: int) -> None:
-    if microbatch_df.rdd.isEmpty():
+    if microbatch_df.isEmpty():
         return
 
     datas_afetadas = [

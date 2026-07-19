@@ -84,7 +84,9 @@ cadastro_df = spark.table("bronze.cadastro_clientes")
 
 
 def upsert_to_silver(microbatch_df, batch_id: int) -> None:
-    if microbatch_df.rdd.isEmpty():
+    # df.isEmpty(), não df.rdd.isEmpty(): Spark Connect (usado pelo runtime
+    # atual) não implementa o atributo .rdd — PySparkNotImplementedError.
+    if microbatch_df.isEmpty():
         return
 
     enriched_df = microbatch_df.join(F.broadcast(cadastro_df), "cliente_id", "left")
@@ -103,7 +105,7 @@ def upsert_to_silver(microbatch_df, batch_id: int) -> None:
 
 
 def write_quarentena(microbatch_df, batch_id: int) -> None:
-    if microbatch_df.rdd.isEmpty():
+    if microbatch_df.isEmpty():
         return
     (
         microbatch_df.withColumn("_batch_id", F.lit(batch_id))

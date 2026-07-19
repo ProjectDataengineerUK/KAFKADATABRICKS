@@ -42,7 +42,7 @@ BACKOFF_BASE_SECONDS = 2
 
 
 def write_to_mongo(microbatch_df, batch_id: int) -> None:
-    if microbatch_df.rdd.isEmpty():
+    if microbatch_df.isEmpty():
         return
 
     documento_df = regroup_client_documents(microbatch_df)
