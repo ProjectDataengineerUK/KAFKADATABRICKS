@@ -20,7 +20,7 @@ spark.sql(f"USE CATALOG {catalog}")
 
 # COMMAND ----------
 
-from pyspark.sql.functions import current_timestamp, input_file_name
+from pyspark.sql.functions import col, current_timestamp
 
 bronze_df = (
     spark.readStream.format("cloudFiles")
@@ -30,7 +30,7 @@ bronze_df = (
     .option("header", "true")
     .load(raw_path)
     .withColumn("_ingested_at", current_timestamp())
-    .withColumn("_source_file", input_file_name())
+    .withColumn("_source_file", col("_metadata.file_path"))
 )
 
 # COMMAND ----------

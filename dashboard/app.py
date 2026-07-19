@@ -15,6 +15,7 @@ import requests
 import streamlit as st
 
 from pipeline_demo import CHECKLIST_CUSTO, ETAPAS
+from practical_examples import EXEMPLOS
 
 API_BASE_URL = os.environ.get("API_BASE_URL", "http://localhost:8000")
 GITHUB_REPO = "ProjectDataengineerUK/KAFKADATABRICKS"
@@ -212,12 +213,45 @@ def pagina_pipeline_em_acao() -> None:
                     st.markdown(f"✅ **{titulo}** — {explicacao}")
 
 
+def pagina_100_exemplos() -> None:
+    st.caption(
+        "100 padrões práticos e técnicos de pipeline de dados (Databricks/PySpark, "
+        "Kafka, MongoDB/Cosmos, Unity Catalog, API, custo, testes, CI/CD e "
+        "observabilidade) — filtre por categoria ou busque por palavra-chave."
+    )
+
+    categorias = ["Todas"] + sorted({e["categoria"] for e in EXEMPLOS})
+    col_filtro, col_busca = st.columns([1, 2])
+    categoria_selecionada = col_filtro.selectbox("Categoria", categorias)
+    termo_busca = col_busca.text_input("Buscar", placeholder="ex: watermark, MERGE, custo, RU")
+
+    filtrados = EXEMPLOS
+    if categoria_selecionada != "Todas":
+        filtrados = [e for e in filtrados if e["categoria"] == categoria_selecionada]
+    if termo_busca:
+        termo = termo_busca.lower()
+        filtrados = [
+            e
+            for e in filtrados
+            if termo in e["titulo"].lower()
+            or termo in e["explicacao"].lower()
+            or termo in e["codigo"].lower()
+        ]
+
+    st.caption(f"{len(filtrados)} de {len(EXEMPLOS)} exemplos.")
+
+    for exemplo in filtrados:
+        with st.expander(f"**[{exemplo['categoria']}]** {exemplo['titulo']}"):
+            st.code(exemplo["codigo"], language="python")
+            st.markdown(exemplo["explicacao"])
+
+
 def main() -> None:
     st.set_page_config(page_title="Consentimentos — Base Susep (simulada)", page_icon="📋", layout="wide")
     st.title("📋 Status de Consentimento — Banco → Seguradora → Susep")
 
-    aba_consulta, aba_monitoramento, aba_pipeline = st.tabs(
-        ["🔍 Consulta", "📊 Monitoramento", "🔬 Pipeline em Ação"]
+    aba_consulta, aba_monitoramento, aba_pipeline, aba_exemplos = st.tabs(
+        ["🔍 Consulta", "📊 Monitoramento", "🔬 Pipeline em Ação", "💡 100 Exemplos"]
     )
     with aba_consulta:
         pagina_consulta()
@@ -225,6 +259,8 @@ def main() -> None:
         pagina_monitoramento()
     with aba_pipeline:
         pagina_pipeline_em_acao()
+    with aba_exemplos:
+        pagina_100_exemplos()
 
 
 if __name__ == "__main__":

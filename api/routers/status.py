@@ -16,7 +16,6 @@ class PipelineStatus(BaseModel):
     mongo_conectado: bool
     total_clientes_processados: int
     total_eventos_consentimento: int
-    erro_debug: str | None = None
 
 
 @router.get("/status", response_model=PipelineStatus)
@@ -32,12 +31,9 @@ def status() -> PipelineStatus:
             total_clientes_processados=total_clientes,
             total_eventos_consentimento=total_eventos,
         )
-    except Exception as exc:  # noqa: BLE001 - debug temporário, ver TODO abaixo
-        # TODO: remover erro_debug assim que a causa da falha de conexão
-        # com o Mongo em produção for confirmada e corrigida.
+    except Exception:
         return PipelineStatus(
             mongo_conectado=False,
             total_clientes_processados=0,
             total_eventos_consentimento=0,
-            erro_debug=f"{type(exc).__name__}: {exc}",
         )
