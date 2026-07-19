@@ -28,6 +28,12 @@ bronze_df = (
     .option("cloudFiles.schemaLocation", f"{checkpoint_base}/bronze/schema")
     .option("cloudFiles.schemaEvolutionMode", "addNewColumns")
     .option("header", "true")
+    # A landing zone recebe clientes.csv, bancos.csv e seguradoras.csv juntos
+    # (ver producer/generate_reference_data.py), mas bronze.cadastro_clientes
+    # só tem o schema de clientes (ver bootstrap_unity_catalog.sql) — sem este
+    # filtro, o schema evolution une as colunas dos 3 arquivos e a escrita
+    # falha com DELTA_METADATA_MISMATCH.
+    .option("pathGlobFilter", "clientes.csv")
     .load(raw_path)
     .withColumn("_ingested_at", current_timestamp())
     .withColumn("_source_file", col("_metadata.file_path"))
