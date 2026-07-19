@@ -52,7 +52,11 @@ kafka_df = (
     .option("kafka.sasl.mechanism", "PLAIN")
     .option(
         "kafka.sasl.jaas.config",
-        f'org.apache.kafka.common.security.plain.PlainLoginModule required '
+        # O conector Kafka do Databricks usa classes "shaded"
+        # (kafkashaded.org.apache.kafka.*) — referenciar a classe não-shaded
+        # (org.apache.kafka.*) falha com "No LoginModule found", mesmo que
+        # essa seja a forma documentada para Spark/Kafka puro.
+        f'kafkashaded.org.apache.kafka.common.security.plain.PlainLoginModule required '
         f'username="{dbutils.secrets.get(secret_scope, "kafka-api-key")}" '
         f'password="{dbutils.secrets.get(secret_scope, "kafka-api-secret")}";',
     )
