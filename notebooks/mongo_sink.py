@@ -40,14 +40,17 @@ logger = logging.getLogger("mongo_sink")
 MAX_RETRIES = 3
 BACKOFF_BASE_SECONDS = 2
 
+# Buscado uma vez fora do foreachBatch: dbutils não pode ser usado dentro do
+# closure (roda serializado em Spark Connect) — "Exception: You cannot use
+# dbutils within a spark job". A string resultante, sim, é serializável.
+mongo_uri = dbutils.secrets.get(secret_scope, "mongo-uri")
+
 
 def write_to_mongo(microbatch_df, batch_id: int) -> None:
     if microbatch_df.isEmpty():
         return
 
     documento_df = regroup_client_documents(microbatch_df)
-
-    mongo_uri = dbutils.secrets.get(secret_scope, "mongo-uri")
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:

@@ -80,22 +80,31 @@ exploded_df = explode_consent_items(validos_df)
 
 # COMMAND ----------
 
-# Só cliente_id/nome_cliente/cpf: o evento Kafka já traz banco_origem (ver
-# CONSENT_SCHEMA em transforms.py), e bronze.cadastro_clientes também tem
-# uma coluna banco_origem própria — trazer as duas causa
-# [AMBIGUOUS_REFERENCE] no MERGE (s.banco_origem vira ambíguo).
-cadastro_df = spark.table("bronze.cadastro_clientes").select("cliente_id", "nome_cliente", "cpf")
-
-
 def upsert_to_silver(microbatch_df, batch_id: int) -> None:
     # df.isEmpty(), não df.rdd.isEmpty(): Spark Connect (usado pelo runtime
     # atual) não implementa o atributo .rdd — PySparkNotImplementedError.
     if microbatch_df.isEmpty():
         return
 
+    # microbatch_df.sparkSession, não a `spark` do escopo externo: em Spark
+    # Connect, foreachBatch roda serializado, e qualquer objeto capturado do
+    # closure que carregue uma SparkSession (a `spark` global, ou um
+    # DataFrame construído fora da função, como um cadastro_df de nível de
+    # módulo) falha com [STREAMING_CONNECT_SERIALIZATION_ERROR]. Por isso
+    # cadastro_df também é recriado aqui dentro, não reaproveitado de fora.
+    spark_session = microbatch_df.sparkSession
+
+    # Só cliente_id/nome_cliente/cpf: o evento Kafka já traz banco_origem
+    # (ver CONSENT_SCHEMA em transforms.py), e bronze.cadastro_clientes
+    # também tem uma coluna banco_origem própria — trazer as duas causa
+    # [AMBIGUOUS_REFERENCE] no MERGE (s.banco_origem vira ambíguo).
+    cadastro_df = spark_session.table("bronze.cadastro_clientes").select(
+        "cliente_id", "nome_cliente", "cpf"
+    )
+
     enriched_df = microbatch_df.join(F.broadcast(cadastro_df), "cliente_id", "left")
 
-    target = DeltaTable.forName(spark, f"{catalog}.silver.consentimentos")
+    target = DeltaTable.forName(spark_session, f"{catalog}.silver.consentimentos")
     (
         target.alias("t")
         .merge(

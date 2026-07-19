@@ -31,6 +31,13 @@ def upsert_to_gold(microbatch_df, batch_id: int) -> None:
     if microbatch_df.isEmpty():
         return
 
+    # microbatch_df.sparkSession, não a `spark` do escopo externo: em Spark
+    # Connect, capturar no closure do foreachBatch qualquer objeto que
+    # carregue uma SparkSession (a `spark` global aqui) falha com
+    # [STREAMING_CONNECT_SERIALIZATION_ERROR] — ver comentário equivalente
+    # em silver_consent_stream.py.
+    spark_session = microbatch_df.sparkSession
+
     datas_afetadas = [
         row["data_referencia"]
         for row in (
@@ -42,7 +49,7 @@ def upsert_to_gold(microbatch_df, batch_id: int) -> None:
     ]
 
     agregado_df = (
-        spark.table(f"{catalog}.silver.consentimentos")
+        spark_session.table(f"{catalog}.silver.consentimentos")
         .withColumn("data_referencia", F.to_date("timestamp"))
         .filter(F.col("data_referencia").isin(datas_afetadas))
         .groupBy("data_referencia", "banco_origem", "seguradora_id", "tipo_consentimento")
@@ -53,7 +60,7 @@ def upsert_to_gold(microbatch_df, batch_id: int) -> None:
         .withColumn("_atualizado_em", F.current_timestamp())
     )
 
-    target = DeltaTable.forName(spark, f"{catalog}.gold.metricas_consentimento")
+    target = DeltaTable.forName(spark_session, f"{catalog}.gold.metricas_consentimento")
     (
         target.alias("t")
         .merge(
