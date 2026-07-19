@@ -5,6 +5,7 @@ mongomock = pytest.importorskip("mongomock")
 
 from api.main import app  # noqa: E402
 import api.routers.consentimentos as consentimentos_module  # noqa: E402
+import api.routers.status as status_module  # noqa: E402
 
 
 @pytest.fixture()
@@ -12,6 +13,7 @@ def mongo_collection(monkeypatch):
     client = mongomock.MongoClient()
     collection = client["susep_simulado"]["consentimentos_cliente"]
     monkeypatch.setattr(consentimentos_module, "get_consent_collection", lambda: collection)
+    monkeypatch.setattr(status_module, "get_consent_collection", lambda: collection)
     return collection
 
 
@@ -57,6 +59,31 @@ def test_consulta_cliente_inexistente_retorna_404(client, mongo_collection):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert resposta.status_code == 404
+
+
+def test_status_sem_dados(client, mongo_collection):
+    resposta = client.get("/status")
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["mongo_conectado"] is True
+    assert corpo["total_clientes_processados"] == 0
+    assert corpo["total_eventos_consentimento"] == 0
+
+
+def test_status_com_dados(client, mongo_collection):
+    mongo_collection.insert_one(
+        {
+            "cliente_id": "cli-00001",
+            "banco_origem": "banco-001",
+            "seguradora_id": "seg-001",
+            "consentimentos": [{"tipo_consentimento": "x"}, {"tipo_consentimento": "y"}],
+        }
+    )
+    resposta = client.get("/status")
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert corpo["total_clientes_processados"] == 1
+    assert corpo["total_eventos_consentimento"] == 2
 
 
 def test_registrar_e_consultar_consentimento(client, mongo_collection):

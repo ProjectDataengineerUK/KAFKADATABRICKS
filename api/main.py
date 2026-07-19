@@ -8,6 +8,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from api.auth import create_access_token, validar_credenciais_demo
 from api.models import Token
 from api.routers.consentimentos import router as consentimentos_router
+from api.routers.status import router as status_router
 
 app = FastAPI(
     title="Consent Pipeline API",
@@ -16,6 +17,7 @@ app = FastAPI(
 )
 
 app.include_router(consentimentos_router)
+app.include_router(status_router)
 
 
 @app.get("/health")
