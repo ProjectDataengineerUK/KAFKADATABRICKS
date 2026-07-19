@@ -5,6 +5,7 @@ mongomock = pytest.importorskip("mongomock")
 
 from api.main import app  # noqa: E402
 import api.routers.consentimentos as consentimentos_module  # noqa: E402
+import api.routers.gold as gold_module  # noqa: E402
 import api.routers.status as status_module  # noqa: E402
 
 
@@ -14,6 +15,14 @@ def mongo_collection(monkeypatch):
     collection = client["susep_simulado"]["consentimentos_cliente"]
     monkeypatch.setattr(consentimentos_module, "get_consent_collection", lambda: collection)
     monkeypatch.setattr(status_module, "get_consent_collection", lambda: collection)
+    return collection
+
+
+@pytest.fixture()
+def gold_collection(monkeypatch):
+    client = mongomock.MongoClient()
+    collection = client["susep_simulado"]["gold_metricas"]
+    monkeypatch.setattr(gold_module, "get_gold_metricas_collection", lambda: collection)
     return collection
 
 
@@ -84,6 +93,31 @@ def test_status_com_dados(client, mongo_collection):
     corpo = resposta.json()
     assert corpo["total_clientes_processados"] == 1
     assert corpo["total_eventos_consentimento"] == 2
+
+
+def test_gold_metricas_sem_dados(client, gold_collection):
+    resposta = client.get("/gold/metricas")
+    assert resposta.status_code == 200
+    assert resposta.json() == []
+
+
+def test_gold_metricas_com_dados(client, gold_collection):
+    gold_collection.insert_one(
+        {
+            "data_referencia": "2026-07-17",
+            "banco_origem": "banco-001",
+            "seguradora_id": "seg-001",
+            "tipo_consentimento": "compartilhar_dados_cadastrais",
+            "total_eventos": 5,
+            "total_clientes_distintos": 3,
+        }
+    )
+    resposta = client.get("/gold/metricas")
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert len(corpo) == 1
+    assert corpo[0]["total_eventos"] == 5
+    assert corpo[0]["total_clientes_distintos"] == 3
 
 
 def test_registrar_e_consultar_consentimento(client, mongo_collection):

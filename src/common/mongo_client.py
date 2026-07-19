@@ -10,6 +10,7 @@ from pymongo.collection import Collection
 from src.common.config import get_settings
 
 CONSENT_COLLECTION_NAME = "consentimentos_cliente"
+GOLD_METRICAS_COLLECTION_NAME = "gold_metricas"
 
 
 @lru_cache(maxsize=1)
@@ -22,3 +23,11 @@ def get_consent_collection(client: MongoClient | None = None) -> Collection:
     settings = get_settings()
     active_client = client or get_mongo_client()
     return active_client[settings.mongo_db_name][CONSENT_COLLECTION_NAME]
+
+
+def get_gold_metricas_collection(client: MongoClient | None = None) -> Collection:
+    """Espelho da camada Gold (notebooks/gold_metricas.py) — a API só
+    enxerga o Mongo, não a Delta table no Unity Catalog."""
+    settings = get_settings()
+    active_client = client or get_mongo_client()
+    return active_client[settings.mongo_db_name][GOLD_METRICAS_COLLECTION_NAME]

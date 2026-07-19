@@ -62,6 +62,10 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               checkpoint_base: ${var.checkpoint_base}
+              secret_scope: ${var.secret_scope}
+          # Também espelha a Gold para o Mongo via pymongo — mesma
+          # necessidade de environment_key que mongo_sink (ver comentário lá).
+          environment_key: mongo_env
 
       # environment_key acima referencia este bloco: compute serverless só
       # aceita dependências extras (pip) desta forma — não há cluster
@@ -69,6 +73,9 @@ resources:
       environments:
         - environment_key: mongo_env
           spec:
-            client: "1"
+            # client "1" não é suportado pelo canal REPL deste workspace
+            # (INVALID_PARAMETER_VALUE: "Workspace doesn't support Client-1
+            # channel for REPL") — "2" é o canal serverless atual.
+            client: "2"
             dependencies:
               - pymongo==4.9.1
