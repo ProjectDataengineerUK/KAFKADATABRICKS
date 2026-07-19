@@ -48,6 +48,11 @@ resources:
               checkpoint_base: ${var.checkpoint_base}
               secret_scope: ${var.secret_scope}
               bundle_root: ${workspace.file_path}
+          # Compute serverless (Free Edition) não aceita bibliotecas JVM/Maven
+          # (por isso mongo_sink.py grava via pymongo, não via connector
+          # Spark) — mas pymongo em si, sendo pip, precisa deste
+          # environment_key para existir no notebook.
+          environment_key: mongo_env
 
         - task_key: gold_metricas
           depends_on:
@@ -57,3 +62,13 @@ resources:
             base_parameters:
               catalog: ${var.catalog}
               checkpoint_base: ${var.checkpoint_base}
+
+      # environment_key acima referencia este bloco: compute serverless só
+      # aceita dependências extras (pip) desta forma — não há cluster
+      # clássico aqui para anexar libraries do jeito tradicional.
+      environments:
+        - environment_key: mongo_env
+          spec:
+            client: "1"
+            dependencies:
+              - pymongo==4.9.1

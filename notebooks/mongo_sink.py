@@ -4,6 +4,15 @@
 # MAGIC Lê a Silver como stream, reagrupa os itens de consentimento por cliente
 # MAGIC (`collect_list(struct(...))`) e grava o documento aninhado no MongoDB
 # MAGIC Atlas via `foreachBatch`, com retry exponencial em caso de falha de conexão.
+# MAGIC
+# MAGIC Grava via **pymongo** direto (não via `.write.format("mongodb")`): o
+# MAGIC MongoDB Spark Connector é uma biblioteca JVM/Maven, e o Databricks Free
+# MAGIC Edition só oferece compute serverless, que não permite anexar
+# MAGIC bibliotecas JVM a um cluster — tentar usar o connector falha com
+# MAGIC `[DATA_SOURCE_NOT_FOUND] Failed to find the data source: mongodb`. Como o
+# MAGIC micro-batch já sai da Silver reagrupado por cliente (poucas linhas),
+# MAGIC coletar para o driver e escrever com pymongo (mesma lib que a API usa)
+# MAGIC é seguro e evita depender de um JAR que não pode ser instalado aqui.
 
 # COMMAND ----------
 
@@ -33,6 +42,8 @@ bundle_root = dbutils.widgets.get("bundle_root")
 if bundle_root:
     sys.path.append(bundle_root)
 
+from pymongo import MongoClient
+
 from src.common.transforms import regroup_client_documents
 
 logger = logging.getLogger("mongo_sink")
@@ -51,18 +62,27 @@ def write_to_mongo(microbatch_df, batch_id: int) -> None:
         return
 
     documento_df = regroup_client_documents(microbatch_df)
+    # .collect(), não .write: sem o connector JVM, o caminho é trazer o
+    # micro-batch (já agregado por cliente) para o driver e gravar via
+    # pymongo. asDict(recursive=True) resolve os Rows aninhados
+    # (consentimentos: array<struct<...>>) em listas de dict puro, que o
+    # pymongo serializa direto para BSON.
+    documentos = [row.asDict(recursive=True) for row in documento_df.collect()]
+    if not documentos:
+        return
 
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            (
-                documento_df.write.format("mongodb")
-                .mode("append")
-                .option("spark.mongodb.connection.uri", mongo_uri)
-                .option("database", mongo_database)
-                .option("collection", mongo_collection)
-                .save()
+            client = MongoClient(mongo_uri)
+            try:
+                client[mongo_database][mongo_collection].insert_many(documentos)
+            finally:
+                client.close()
+            logger.info(
+                "batch_id=%s gravado no MongoDB com sucesso (%s documentos)",
+                batch_id,
+                len(documentos),
             )
-            logger.info("batch_id=%s gravado no MongoDB com sucesso", batch_id)
             return
         except Exception as exc:  # noqa: BLE001 - retry deliberado antes de propagar
             wait_seconds = BACKOFF_BASE_SECONDS ** attempt
