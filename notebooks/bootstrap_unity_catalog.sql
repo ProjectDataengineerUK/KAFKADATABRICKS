@@ -39,13 +39,29 @@ CREATE VOLUME IF NOT EXISTS IDENTIFIER(:catalog || '.ops.checkpoints');
 
 -- COMMAND ----------
 
--- Tabela Bronze (criada implicitamente pelo Autoloader, DDL aqui apenas
--- documenta o contrato esperado para revisão/CI).
+-- Tabelas Bronze (criadas implicitamente pelo Autoloader, DDL aqui apenas
+-- documenta o contrato esperado para revisão/CI) — uma por CSV de cadastro
+-- (clientes.csv, bancos.csv, seguradoras.csv), cada um com seu próprio
+-- Autoloader em notebooks/bronze_autoloader.py.
 CREATE TABLE IF NOT EXISTS IDENTIFIER(:catalog || '.bronze.cadastro_clientes') (
   cliente_id STRING NOT NULL,
   nome_cliente STRING,
   cpf STRING,
   banco_origem STRING,
+  _ingested_at TIMESTAMP,
+  _source_file STRING
+) USING DELTA;
+
+CREATE TABLE IF NOT EXISTS IDENTIFIER(:catalog || '.bronze.bancos') (
+  banco_id STRING NOT NULL,
+  nome STRING,
+  _ingested_at TIMESTAMP,
+  _source_file STRING
+) USING DELTA;
+
+CREATE TABLE IF NOT EXISTS IDENTIFIER(:catalog || '.bronze.seguradoras') (
+  seguradora_id STRING NOT NULL,
+  nome STRING,
   _ingested_at TIMESTAMP,
   _source_file STRING
 ) USING DELTA;
