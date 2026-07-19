@@ -27,6 +27,7 @@ CREATE CATALOG IF NOT EXISTS IDENTIFIER(:catalog);
 CREATE SCHEMA IF NOT EXISTS IDENTIFIER(:catalog || '.landing');
 CREATE SCHEMA IF NOT EXISTS IDENTIFIER(:catalog || '.bronze');
 CREATE SCHEMA IF NOT EXISTS IDENTIFIER(:catalog || '.silver');
+CREATE SCHEMA IF NOT EXISTS IDENTIFIER(:catalog || '.gold');
 CREATE SCHEMA IF NOT EXISTS IDENTIFIER(:catalog || '.ops');
 
 -- COMMAND ----------
@@ -112,6 +113,23 @@ CREATE TABLE IF NOT EXISTS IDENTIFIER(:catalog || '.silver.consentimentos_quaren
 
 -- COMMAND ----------
 
+-- Gold: métricas agregadas por dia/banco/seguradora/tipo de consentimento —
+-- camada de consumo analítico (BI/dashboards), alimentada por
+-- notebooks/gold_metricas.py a partir da Silver.
+CREATE TABLE IF NOT EXISTS IDENTIFIER(:catalog || '.gold.metricas_consentimento') (
+  data_referencia DATE NOT NULL,
+  banco_origem STRING NOT NULL,
+  seguradora_id STRING NOT NULL,
+  tipo_consentimento STRING NOT NULL,
+  total_eventos BIGINT,
+  total_clientes_distintos BIGINT,
+  _atualizado_em TIMESTAMP
+)
+USING DELTA
+PARTITIONED BY (data_referencia);
+
+-- COMMAND ----------
+
 -- MAGIC %python
 -- MAGIC # GRANT não suporta a cláusula IDENTIFIER() (ver
 -- MAGIC # https://docs.databricks.com/aws/en/sql/language-manual/sql-ref-names-identifier-clause),
@@ -124,8 +142,10 @@ CREATE TABLE IF NOT EXISTS IDENTIFIER(:catalog || '.silver.consentimentos_quaren
 -- MAGIC     f"GRANT USE SCHEMA, SELECT, MODIFY ON SCHEMA `{catalog}`.landing TO `data_engineers`",
 -- MAGIC     f"GRANT USE SCHEMA, SELECT, MODIFY ON SCHEMA `{catalog}`.bronze TO `data_engineers`",
 -- MAGIC     f"GRANT USE SCHEMA, SELECT, MODIFY ON SCHEMA `{catalog}`.silver TO `data_engineers`",
+-- MAGIC     f"GRANT USE SCHEMA, SELECT, MODIFY ON SCHEMA `{catalog}`.gold TO `data_engineers`",
 -- MAGIC     f"GRANT USE SCHEMA, READ VOLUME, WRITE VOLUME ON SCHEMA `{catalog}`.ops TO `data_engineers`",
 -- MAGIC     f"GRANT USE SCHEMA, SELECT ON SCHEMA `{catalog}`.silver TO `analysts`",
+-- MAGIC     f"GRANT USE SCHEMA, SELECT ON SCHEMA `{catalog}`.gold TO `analysts`",
 -- MAGIC ]:
 -- MAGIC     spark.sql(stmt)
 

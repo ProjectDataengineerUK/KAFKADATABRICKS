@@ -12,6 +12,7 @@ dbutils.widgets.text("checkpoint_base", "")  # vazio = usa o Volume padrão do c
 dbutils.widgets.text("secret_scope", "consent-pipeline")
 dbutils.widgets.text("mongo_database", "susep_simulado")
 dbutils.widgets.text("mongo_collection", "consentimentos_cliente")
+dbutils.widgets.text("bundle_root", "")  # ${workspace.file_path} — ver jobs.yml
 
 catalog = dbutils.widgets.get("catalog")
 checkpoint_base = dbutils.widgets.get("checkpoint_base") or f"/Volumes/{catalog}/ops/checkpoints"
@@ -24,7 +25,13 @@ spark.sql(f"USE CATALOG {catalog}")
 # COMMAND ----------
 
 import logging
+import sys
 import time
+
+# Ver comentário equivalente em silver_consent_stream.py.
+bundle_root = dbutils.widgets.get("bundle_root")
+if bundle_root:
+    sys.path.append(bundle_root)
 
 from src.common.transforms import regroup_client_documents
 
@@ -78,4 +85,5 @@ query = (
     .start()
 )
 
-query.awaitTermination()
+# Sem awaitTermination() — ver comentário equivalente em silver_consent_stream.py:
+# bloquear aqui impediria qualquer task downstream (depends_on) de rodar.

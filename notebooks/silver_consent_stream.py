@@ -11,6 +11,7 @@
 dbutils.widgets.text("catalog", "consent_pipeline_dev")
 dbutils.widgets.text("checkpoint_base", "")  # vazio = usa o Volume padrão do catálogo
 dbutils.widgets.text("secret_scope", "consent-pipeline")
+dbutils.widgets.text("bundle_root", "")  # ${workspace.file_path} — ver jobs.yml
 
 catalog = dbutils.widgets.get("catalog")
 checkpoint_base = dbutils.widgets.get("checkpoint_base") or f"/Volumes/{catalog}/ops/checkpoints"
@@ -19,6 +20,16 @@ secret_scope = dbutils.widgets.get("secret_scope")
 spark.sql(f"USE CATALOG {catalog}")
 
 # COMMAND ----------
+
+import sys
+
+# Sincronizar src/ pelo bundle (databricks.yml sync.paths) não é suficiente
+# sozinho: o Databricks só adiciona ao sys.path a pasta do próprio notebook,
+# não a raiz do bundle onde src/ está como pasta irmã — sem isto, o import
+# abaixo falha com "ModuleNotFoundError: No module named 'src'".
+bundle_root = dbutils.widgets.get("bundle_root")
+if bundle_root:
+    sys.path.append(bundle_root)
 
 from pyspark.sql import functions as F
 from delta.tables import DeltaTable
@@ -105,5 +116,8 @@ quarentena_query = (
     .start()
 )
 
-silver_query.awaitTermination()
-quarentena_query.awaitTermination()
+# Sem awaitTermination(): dentro de um Databricks Job, essa chamada bloqueia
+# o notebook para sempre e impede a task de reportar sucesso — o que por sua
+# vez impede QUALQUER task downstream (depends_on) de rodar, já que ela
+# nunca é satisfeita. O próprio Jobs service já mantém o run ativo enquanto
+# houver streaming query rodando, sem precisar bloquear aqui.

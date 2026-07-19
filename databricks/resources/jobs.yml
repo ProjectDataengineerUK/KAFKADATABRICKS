@@ -33,6 +33,10 @@ resources:
               catalog: ${var.catalog}
               checkpoint_base: ${var.checkpoint_base}
               secret_scope: ${var.secret_scope}
+              # Notebook faz "from src.common..." — o sync do bundle coloca
+              # src/ no workspace, mas só ${workspace.file_path} no sys.path
+              # torna esse import resolvível (ver comentário no notebook).
+              bundle_root: ${workspace.file_path}
 
         - task_key: mongo_sink
           depends_on:
@@ -43,3 +47,13 @@ resources:
               catalog: ${var.catalog}
               checkpoint_base: ${var.checkpoint_base}
               secret_scope: ${var.secret_scope}
+              bundle_root: ${workspace.file_path}
+
+        - task_key: gold_metricas
+          depends_on:
+            - task_key: silver_consent_stream
+          notebook_task:
+            notebook_path: ../../notebooks/gold_metricas.py
+            base_parameters:
+              catalog: ${var.catalog}
+              checkpoint_base: ${var.checkpoint_base}
