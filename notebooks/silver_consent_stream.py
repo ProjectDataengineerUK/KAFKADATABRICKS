@@ -32,6 +32,7 @@ if bundle_root:
     sys.path.append(bundle_root)
 
 from pyspark.sql import functions as F
+from pyspark.sql.window import Window
 from delta.tables import DeltaTable
 
 from src.common.transforms import explode_consent_items, parse_and_split
@@ -102,7 +103,23 @@ def upsert_to_silver(microbatch_df, batch_id: int) -> None:
         "cliente_id", "nome_cliente", "cpf"
     )
 
-    enriched_df = microbatch_df.join(F.broadcast(cadastro_df), "cliente_id", "left")
+    # Dedup por (cliente_id, tipo_consentimento) — a mesma chave do MERGE
+    # abaixo: se dois eventos do mesmo micro-batch caírem na mesma chave
+    # (ex.: o produtor demo publica mais de um evento do mesmo tipo para o
+    # mesmo cliente na janela do batch), o MERGE recusa com
+    # [DELTA_MULTIPLE_SOURCE_ROW_MATCHING_TARGET_ROW_IN_MERGE] — SQL MERGE
+    # não permite duas linhas de origem casarem a mesma linha de destino.
+    # Mantém só o evento mais recente por chave, coerente com a condição
+    # "s.timestamp > t.timestamp" do whenMatchedUpdateAll abaixo.
+    janela_dedup = Window.partitionBy("cliente_id", "tipo_consentimento").orderBy(
+        F.col("timestamp").desc()
+    )
+    enriched_df = (
+        microbatch_df.join(F.broadcast(cadastro_df), "cliente_id", "left")
+        .withColumn("_rn", F.row_number().over(janela_dedup))
+        .filter(F.col("_rn") == 1)
+        .drop("_rn")
+    )
 
     target = DeltaTable.forName(spark_session, f"{catalog}.silver.consentimentos")
     (
