@@ -56,10 +56,19 @@ def upsert_to_gold(microbatch_df, batch_id: int) -> None:
     # em silver_consent_stream.py.
     spark_session = microbatch_df.sparkSession
 
+    # readChangeFeed traz update_preimage (a linha ANTES da mudança) junto
+    # com update_postimage (a linha DEPOIS) — sem filtrar, update_preimage
+    # contaria uma "data afetada" com o timestamp antigo à toa (o estado
+    # atual já vem de uma releitura completa da Silver logo abaixo, então
+    # preimage não agrega nada aqui, só ruído).
+    alterado_df = microbatch_df.filter(F.col("_change_type").isin("insert", "update_postimage"))
+    if alterado_df.isEmpty():
+        return
+
     datas_afetadas = [
         row["data_referencia"]
         for row in (
-            microbatch_df.withColumn("data_referencia", F.to_date("timestamp"))
+            alterado_df.withColumn("data_referencia", F.to_date("timestamp"))
             .select("data_referencia")
             .distinct()
             .collect()
@@ -118,12 +127,17 @@ query = (
     spark.readStream
     # silver.consentimentos recebe UPDATE via MERGE (upsert_to_silver), não só
     # append — sem isto o Delta source recusa com
-    # [DELTA_SOURCE_TABLE_IGNORE_CHANGES]. Seguro pular aqui porque
-    # upsert_to_gold só usa o microbatch para saber quais datas mudaram
-    # (linha abaixo), e sempre relê o estado atual completo da Silver para
-    # essas datas antes de agregar — não depende dos valores linha-a-linha
-    # do stream.
-    .option("skipChangeCommits", "true")
+    # [DELTA_SOURCE_TABLE_IGNORE_CHANGES]. skipChangeCommits (opção anterior)
+    # parecia seguro pela mesma razão dada abaixo (só usamos o microbatch pra
+    # saber o que mudou, sempre relemos o estado completo da Silver depois),
+    # mas na prática ele descarta o COMMIT INTEIRO sempre que qualquer linha
+    # dele for um update — e o MERGE da Silver por (cliente_id,
+    # tipo_consentimento) faz isso o tempo todo com o pool finito de clientes
+    # demo, deixando a Gold praticamente sempre vazia. readChangeFeed entrega
+    # updates de verdade (como update_postimage) em vez de descartar o
+    # commit — requer delta.enableChangeDataFeed=true na Silver (ver
+    # bootstrap_unity_catalog.sql).
+    .option("readChangeFeed", "true")
     .table("silver.consentimentos")
     .writeStream.foreachBatch(upsert_to_gold)
     .option("checkpointLocation", f"{checkpoint_base}/gold/metricas")

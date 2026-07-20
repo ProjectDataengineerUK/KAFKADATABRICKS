@@ -102,7 +102,25 @@ CREATE TABLE IF NOT EXISTS IDENTIFIER(:catalog || '.silver.consentimentos') (
   status STRING
 )
 USING DELTA
-PARTITIONED BY (banco_origem);
+PARTITIONED BY (banco_origem)
+TBLPROPERTIES (delta.enableChangeDataFeed = true);
+
+-- COMMAND ----------
+
+-- MAGIC %python
+-- MAGIC # CREATE TABLE IF NOT EXISTS acima não retroage TBLPROPERTIES em
+-- MAGIC # catálogos onde esta tabela já existia antes do CDF ser adotado
+-- MAGIC # (dev/prod já bootstrapados) — sem isto, mongo_sink.py/gold_metricas.py
+-- MAGIC # continuam sem ver updates via readChangeFeed (só inserts puros).
+-- MAGIC # SET TBLPROPERTIES é idempotente (não erra se já estiver true), então
+-- MAGIC # roda sempre, sem try/except. Só afeta commits futuros — o CDF não é
+-- MAGIC # retroativo para o histórico anterior a este ALTER.
+-- MAGIC spark.sql(
+-- MAGIC     f"ALTER TABLE `{catalog}`.silver.consentimentos "
+-- MAGIC     "SET TBLPROPERTIES (delta.enableChangeDataFeed = true)"
+-- MAGIC )
+
+-- COMMAND ----------
 
 CREATE TABLE IF NOT EXISTS IDENTIFIER(:catalog || '.silver.consentimentos_quarentena') (
   raw_json STRING,

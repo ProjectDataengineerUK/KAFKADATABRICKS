@@ -43,6 +43,7 @@ if bundle_root:
     sys.path.append(bundle_root)
 
 from pymongo import MongoClient
+from pyspark.sql import functions as F
 
 from src.common.transforms import regroup_client_documents
 
@@ -61,9 +62,33 @@ def write_to_mongo(microbatch_df, batch_id: int) -> None:
     if microbatch_df.isEmpty():
         return
 
-    documento_df = regroup_client_documents(microbatch_df)
+    # microbatch_df.sparkSession, não a `spark` do escopo externo — ver
+    # comentário equivalente em silver_consent_stream.py/gold_metricas.py.
+    spark_session = microbatch_df.sparkSession
+
+    # readChangeFeed traz update_preimage (linha antes da mudança) junto com
+    # update_postimage (depois) — só nos importa saber QUAL cliente mudou,
+    # não o valor da linha em si (relemos o estado completo dele abaixo).
+    alterado_df = microbatch_df.filter(F.col("_change_type").isin("insert", "update_postimage"))
+    if alterado_df.isEmpty():
+        return
+
+    clientes_afetados = [
+        row["cliente_id"] for row in alterado_df.select("cliente_id").distinct().collect()
+    ]
+
+    # Relê o estado atual completo da Silver para os clientes afetados (não
+    # só as linhas deste micro-batch): um mesmo cliente pode ter tipos de
+    # consentimento diferentes gravados em micro-batches anteriores, e o
+    # documento no Mongo precisa sempre refletir o conjunto completo — mesma
+    # lógica de upsert_to_gold em gold_metricas.py.
+    documento_df = regroup_client_documents(
+        spark_session.table(f"{catalog}.silver.consentimentos").filter(
+            F.col("cliente_id").isin(clientes_afetados)
+        )
+    )
     # .collect(), não .write: sem o connector JVM, o caminho é trazer o
-    # micro-batch (já agregado por cliente) para o driver e gravar via
+    # resultado (já agregado por cliente) para o driver e gravar via
     # pymongo. asDict(recursive=True) resolve os Rows aninhados
     # (consentimentos: array<struct<...>>) em listas de dict puro, que o
     # pymongo serializa direto para BSON.
@@ -75,7 +100,16 @@ def write_to_mongo(microbatch_df, batch_id: int) -> None:
         try:
             client = MongoClient(mongo_uri)
             try:
-                client[mongo_database][mongo_collection].insert_many(documentos)
+                colecao = client[mongo_database][mongo_collection]
+                # replace_one upsert por cliente_id, não insert_many: agora
+                # que updates chegam de verdade (era o próprio bug que
+                # motivou trocar skipChangeCommits por readChangeFeed),
+                # insert_many geraria um documento duplicado no Mongo a cada
+                # vez que um cliente já existente mudasse.
+                for documento in documentos:
+                    colecao.replace_one(
+                        {"cliente_id": documento["cliente_id"]}, documento, upsert=True
+                    )
             finally:
                 client.close()
             logger.info(
@@ -104,8 +138,11 @@ query = (
     spark.readStream
     # Ver comentário equivalente em gold_metricas.py: silver.consentimentos
     # recebe UPDATE via MERGE, então o Delta source recusa sem isto
-    # ([DELTA_SOURCE_TABLE_IGNORE_CHANGES]).
-    .option("skipChangeCommits", "true")
+    # ([DELTA_SOURCE_TABLE_IGNORE_CHANGES]) — readChangeFeed (não
+    # skipChangeCommits) porque este último descarta o commit inteiro
+    # sempre que há update, o que é frequente aqui (pool finito de clientes
+    # demo reenviando os mesmos tipos de consentimento).
+    .option("readChangeFeed", "true")
     .table("silver.consentimentos")
     .writeStream.foreachBatch(write_to_mongo)
     .option("checkpointLocation", f"{checkpoint_base}/mongo/consentimentos")
