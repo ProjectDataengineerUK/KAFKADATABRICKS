@@ -10,6 +10,7 @@ ser configuradas como secrets do Streamlit Cloud, nunca hardcoded.
 from __future__ import annotations
 
 import os
+from datetime import datetime
 
 import pandas as pd
 import requests
@@ -223,20 +224,20 @@ def pagina_pipeline_em_acao() -> None:
                 st.code(etapa["codigo"], language="python")
 
             if etapa["prova"] == "workflow_status":
-                st.markdown("**Prova ao vivo:**")
+                st.markdown("**Prova ao vivo:** últimas execuções do gerador de dados (sobe os CSVs pro Volume que este Autoloader lê).")
                 if demo_data_runs:
-                    run = demo_data_runs[0]
-                    icone = ICONE_CONCLUSAO.get(run.get("conclusion"), "🔄")
-                    st.markdown(
-                        f"{icone} Última execução do gerador de dados (sobe os CSVs pro "
-                        f"Volume que este Autoloader lê): {run['created_at']} "
-                        f"— [ver log]({run['html_url']})"
-                    )
+                    for run in demo_data_runs[:3]:
+                        icone = ICONE_CONCLUSAO.get(run.get("conclusion"), "🔄")
+                        st.markdown(f"{icone} {run['created_at']} — [ver log]({run['html_url']})")
                 else:
                     st.info("Ainda sem histórico do workflow de geração de dados.")
 
             elif etapa["prova"] == "consulta_cliente":
-                st.markdown("**Prova ao vivo:** consulte um cliente e veja quantos itens o MERGE já agregou.")
+                st.markdown(
+                    "**Prova ao vivo:** consulte um cliente e veja o `explode` acontecendo — "
+                    "1 documento agrupado (mesmo formato que chega bruto do Kafka) vira N "
+                    "linhas, uma por item de consentimento, igual `explode_consent_items` faz de verdade."
+                )
                 cliente_id_merge = st.text_input(
                     "ID do cliente", placeholder="cli-00001", key="prova_merge"
                 )
@@ -249,6 +250,83 @@ def pagina_pipeline_em_acao() -> None:
                             f"MERGE já upsertou {len(documento['consentimentos'])} "
                             f"item(ns) de consentimento para {cliente_id_merge}."
                         )
+                        col_antes, col_depois = st.columns(2)
+                        with col_antes:
+                            st.markdown("**Antes do explode** — 1 documento agrupado:")
+                            st.json(
+                                {
+                                    "cliente_id": documento["cliente_id"],
+                                    "banco_origem": documento["banco_origem"],
+                                    "seguradora_id": documento["seguradora_id"],
+                                    "consentimentos": documento["consentimentos"],
+                                }
+                            )
+                        with col_depois:
+                            st.markdown(
+                                f"**Depois do explode** — {len(documento['consentimentos'])} linha(s):"
+                            )
+                            linhas_explodidas = [
+                                {
+                                    "cliente_id": documento["cliente_id"],
+                                    "tipo_consentimento": item["tipo_consentimento"],
+                                    "escopo": ", ".join(item["escopo"]),
+                                    "status": item["status"],
+                                    "timestamp": item["timestamp"],
+                                }
+                                for item in documento["consentimentos"]
+                            ]
+                            st.dataframe(
+                                pd.DataFrame(linhas_explodidas),
+                                use_container_width=True,
+                                hide_index=True,
+                            )
+
+                st.divider()
+                st.markdown(
+                    "**Simulador** — proteção contra reprocessamento "
+                    '(`whenMatchedUpdateAll(condition="s.timestamp > t.timestamp")`):'
+                )
+                col_atual, col_chegando = st.columns(2)
+                with col_atual:
+                    ts_atual = st.text_input(
+                        "timestamp já gravado na Silver (t)",
+                        value="2026-07-20T10:00:00",
+                        key="ts_atual",
+                    )
+                with col_chegando:
+                    ts_novo = st.text_input(
+                        "timestamp do evento chegando agora (s)",
+                        value="2026-07-20T09:30:00",
+                        key="ts_novo",
+                    )
+                try:
+                    aplica_update = datetime.fromisoformat(ts_novo) > datetime.fromisoformat(ts_atual)
+                    if aplica_update:
+                        st.success(
+                            "s.timestamp > t.timestamp → MERGE aplica o UPDATE (evento é mais novo)."
+                        )
+                    else:
+                        st.warning(
+                            "s.timestamp <= t.timestamp → MERGE ignora essa linha (evento chegou "
+                            "atrasado/reprocessado — protege o dado mais novo já gravado)."
+                        )
+                except ValueError:
+                    st.error("Timestamps precisam estar em formato ISO (ex.: 2026-07-20T10:00:00).")
+
+            elif etapa["prova"] == "gold_preview":
+                st.markdown(
+                    "**Prova ao vivo:** métricas Gold processadas até agora "
+                    "(ver aba 📈 Gold para o detalhamento completo)."
+                )
+                metricas = obter_metricas_gold()
+                if not metricas:
+                    st.info("Ainda sem métricas Gold processadas — roda o job `gold_metricas` no Databricks.")
+                else:
+                    df_gold = pd.DataFrame(metricas)
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Total de eventos", int(df_gold["total_eventos"].sum()))
+                    col2.metric("Linhas Gold (dia×banco×seguradora×tipo)", len(df_gold))
+                    col3.metric("Dias com dado", df_gold["data_referencia"].nunique())
 
             elif etapa["prova"] == "documento_raw":
                 st.markdown("**Prova ao vivo:** documento real gravado pelo Mongo Sink (struct aninhado).")
@@ -261,6 +339,35 @@ def pagina_pipeline_em_acao() -> None:
                         st.warning("Cliente ainda não processado.")
                     else:
                         st.json(documento)
+
+            elif etapa["prova"] == "mask_simulator":
+                st.markdown(
+                    "**Simulador ao vivo** das funções `mask_cpf`/`mask_nome` (mesma lógica "
+                    "do `CREATE OR REPLACE FUNCTION` acima, reproduzida aqui em Python só "
+                    "pra visualizar sem precisar de acesso ao Unity Catalog):"
+                )
+                col_cpf, col_nome = st.columns(2)
+                with col_cpf:
+                    cpf_exemplo = st.text_input("CPF de exemplo", value="123.456.789-00", key="cpf_mask")
+                with col_nome:
+                    nome_exemplo = st.text_input("Nome de exemplo", value="Maria da Silva", key="nome_mask")
+
+                grupo = st.radio(
+                    "Ver como:",
+                    ["analysts (mascarado)", "data_engineers (acesso total)"],
+                    key="grupo_mask",
+                )
+                if grupo.startswith("analysts"):
+                    cpf_mascarado = f"***.***.***-{cpf_exemplo[-2:]}" if len(cpf_exemplo) >= 2 else "***.***.***-**"
+                    st.code(f"cpf = {cpf_mascarado}\nnome_cliente = CLIENTE PROTEGIDO", language="text")
+                else:
+                    st.code(f"cpf = {cpf_exemplo}\nnome_cliente = {nome_exemplo}", language="text")
+                st.caption(
+                    "Row-level security (`filter_seguradora`) segue o mesmo princípio — "
+                    "analista só enxerga linhas onde `seguradora_id` bate com a sua — mas "
+                    "depende do contexto de usuário real do Unity Catalog, por isso só o "
+                    "masking de coluna é simulado aqui."
+                )
 
             elif etapa["prova"] == "checklist_custo":
                 for titulo, explicacao in CHECKLIST_CUSTO:

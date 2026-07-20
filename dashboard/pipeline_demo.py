@@ -92,7 +92,7 @@ def upsert_to_silver(microbatch_df, batch_id):
 target = DeltaTable.forName(spark, f"{catalog}.gold.metricas_consentimento")
 target.alias("t").merge(agregado_df.alias("s"), "...chave composta...") \\
     .whenMatchedUpdateAll().whenNotMatchedInsertAll().execute()''',
-        "prova": None,
+        "prova": "gold_preview",
     },
     {
         "titulo": "4. Mongo Sink — struct aninhado (notebooks/mongo_sink.py + src/common/transforms.py)",
@@ -141,13 +141,45 @@ ALTER TABLE `{catalog}`.silver.consentimentos
 
 ALTER TABLE `{catalog}`.silver.consentimentos
   SET ROW FILTER `{catalog}`.silver.filter_seguradora ON (seguradora_id);''',
-        "prova": None,
+        "prova": "mask_simulator",
     },
     {
         "titulo": "6. Custo & Otimização — decisões reais deste projeto",
         "conceito": "Cada escolha de custo do guia (seção 11), mapeada para o que este projeto de fato faz — não teoria solta.",
         "codigo": None,
         "prova": "checklist_custo",
+    },
+    {
+        "titulo": "7. Troubleshooting real — falha silenciosa em Structured Streaming (CDF vs skipChangeCommits)",
+        "conceito": (
+            "Caso real de troubleshooting deste projeto, não exercício teórico. "
+            "`mongo_sink.py`/`gold_metricas.py` liam `silver.consentimentos` com "
+            "`skipChangeCommits=true` pra tolerar o MERGE da Silver — mas essa "
+            "opção descarta o **commit inteiro** sempre que ele contém qualquer "
+            "linha de update, não só as linhas atualizadas. Com um pool finito de "
+            "clientes demo, a maioria dos micro-batches depois da carga inicial "
+            "vira update (mesmo cliente+tipo reaparecendo), então Gold e Mongo "
+            "processavam batches praticamente vazios — sem erro nenhum, falha "
+            "silenciosa. Trocado por Change Data Feed (`readChangeFeed`), que "
+            "entrega updates de verdade em vez de descartar o commit. Efeito "
+            "colateral corrigido junto: como updates passaram a chegar de fato, "
+            "`mongo_sink.py` trocou `insert_many` por `replace_one upsert` por "
+            "`cliente_id`, senão cada update viraria um documento duplicado no Mongo."
+        ),
+        "codigo": '''# Antes: descarta o commit inteiro se ele tiver qualquer update
+spark.readStream.option("skipChangeCommits", "true").table("silver.consentimentos")
+
+# Depois: Change Data Feed entrega updates de verdade, sem descartar
+(
+    spark.readStream.option("readChangeFeed", "true")
+    .table("silver.consentimentos")
+    .filter(F.col("_change_type").isin("insert", "update_postimage"))
+)
+
+# delta.enableChangeDataFeed precisa estar ligado na tabela — e não é
+# retroativo pro histórico já commitado antes do ALTER:
+# ALTER TABLE silver.consentimentos SET TBLPROPERTIES (delta.enableChangeDataFeed = true)''',
+        "prova": "gold_preview",
     },
 ]
 
