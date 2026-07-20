@@ -101,7 +101,12 @@ def write_to_mongo(microbatch_df, batch_id: int) -> None:
 # COMMAND ----------
 
 query = (
-    spark.readStream.table("silver.consentimentos")
+    spark.readStream
+    # Ver comentário equivalente em gold_metricas.py: silver.consentimentos
+    # recebe UPDATE via MERGE, então o Delta source recusa sem isto
+    # ([DELTA_SOURCE_TABLE_IGNORE_CHANGES]).
+    .option("skipChangeCommits", "true")
+    .table("silver.consentimentos")
     .writeStream.foreachBatch(write_to_mongo)
     .option("checkpointLocation", f"{checkpoint_base}/mongo/consentimentos")
     # Databricks Free Edition não suporta trigger de streaming contínuo — ver
