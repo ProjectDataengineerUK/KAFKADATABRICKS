@@ -35,10 +35,14 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
       - name: Gitleaks (scan de segredos)
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_CONFIG: .gitleaks.toml
+        # gitleaks/gitleaks-action@v2 passou a exigir licença paga
+        # (GITLEAKS_LICENSE) pra contas/orgs — sem isso o passo falha com
+        # "missing gitleaks license", mesmo sem nenhum segredo vazado. Roda o
+        # binário gitleaks (open source, sem licença) direto via Docker em
+        # vez do wrapper, mantendo o mesmo .gitleaks.toml.
+        run: |
+          docker run --rm -v "${{ github.workspace }}:/repo" ghcr.io/gitleaks/gitleaks:latest \
+            detect --source /repo --config /repo/.gitleaks.toml --redact -v --exit-code 1
       - name: Ruff (lint)
         run: ruff check .
       - name: Pytest
