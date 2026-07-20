@@ -37,6 +37,10 @@ resources:
               # src/ no workspace, mas só ${workspace.file_path} no sys.path
               # torna esse import resolvível (ver comentário no notebook).
               bundle_root: ${workspace.file_path}
+          # write_quarentena agora espelha os eventos rejeitados pro Mongo
+          # via pymongo — mesma necessidade de environment_key que
+          # mongo_sink/gold_metricas (ver comentário no bloco environments).
+          environment_key: mongo_env
 
         - task_key: mongo_sink
           depends_on:

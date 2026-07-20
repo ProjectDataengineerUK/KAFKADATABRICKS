@@ -6,6 +6,7 @@ mongomock = pytest.importorskip("mongomock")
 from api.main import app  # noqa: E402
 import api.routers.consentimentos as consentimentos_module  # noqa: E402
 import api.routers.gold as gold_module  # noqa: E402
+import api.routers.quarentena as quarentena_module  # noqa: E402
 import api.routers.status as status_module  # noqa: E402
 
 
@@ -23,6 +24,14 @@ def gold_collection(monkeypatch):
     client = mongomock.MongoClient()
     collection = client["susep_simulado"]["gold_metricas"]
     monkeypatch.setattr(gold_module, "get_gold_metricas_collection", lambda: collection)
+    return collection
+
+
+@pytest.fixture()
+def quarentena_collection(monkeypatch):
+    client = mongomock.MongoClient()
+    collection = client["susep_simulado"]["consentimentos_quarentena"]
+    monkeypatch.setattr(quarentena_module, "get_quarentena_collection", lambda: collection)
     return collection
 
 
@@ -118,6 +127,36 @@ def test_gold_metricas_com_dados(client, gold_collection):
     assert len(corpo) == 1
     assert corpo[0]["total_eventos"] == 5
     assert corpo[0]["total_clientes_distintos"] == 3
+
+
+def test_quarentena_sem_dados(client, quarentena_collection):
+    resposta_eventos = client.get("/quarentena/eventos")
+    assert resposta_eventos.status_code == 200
+    assert resposta_eventos.json() == []
+
+    resposta_total = client.get("/quarentena/total")
+    assert resposta_total.status_code == 200
+    assert resposta_total.json() == {"total": 0}
+
+
+def test_quarentena_com_dados(client, quarentena_collection):
+    quarentena_collection.insert_one(
+        {
+            "raw_json": '{"cliente_id": null}',
+            "offset": 42,
+            "kafka_timestamp": "2026-07-17T12:00:00",
+            "_batch_id": 3,
+        }
+    )
+    resposta_eventos = client.get("/quarentena/eventos")
+    assert resposta_eventos.status_code == 200
+    corpo = resposta_eventos.json()
+    assert len(corpo) == 1
+    assert corpo[0]["offset"] == 42
+    assert corpo[0]["batch_id"] == 3
+
+    resposta_total = client.get("/quarentena/total")
+    assert resposta_total.json() == {"total": 1}
 
 
 def test_registrar_e_consultar_consentimento(client, mongo_collection):

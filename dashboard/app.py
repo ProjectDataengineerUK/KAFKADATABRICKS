@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 
+import pandas as pd
 import requests
 import streamlit as st
 
@@ -78,6 +79,38 @@ def obter_workflow_runs() -> list[dict]:
         return []
 
 
+@st.cache_data(ttl=30)
+def obter_metricas_gold() -> list[dict]:
+    try:
+        resposta = requests.get(f"{API_BASE_URL}/gold/metricas", timeout=60)
+        resposta.raise_for_status()
+        return resposta.json()
+    except requests.RequestException:
+        return []
+
+
+@st.cache_data(ttl=30)
+def obter_quarentena_total() -> int | None:
+    try:
+        resposta = requests.get(f"{API_BASE_URL}/quarentena/total", timeout=60)
+        resposta.raise_for_status()
+        return resposta.json()["total"]
+    except requests.RequestException:
+        return None
+
+
+@st.cache_data(ttl=30)
+def obter_quarentena_eventos(limite: int = 50) -> list[dict]:
+    try:
+        resposta = requests.get(
+            f"{API_BASE_URL}/quarentena/eventos", params={"limite": limite}, timeout=60
+        )
+        resposta.raise_for_status()
+        return resposta.json()
+    except requests.RequestException:
+        return []
+
+
 ICONE_CONCLUSAO = {
     "success": "✅",
     "failure": "❌",
@@ -128,6 +161,27 @@ def pagina_monitoramento() -> None:
     else:
         col2.metric("Mongo", "🔴 sem conexão")
         col3.metric("Eventos de consentimento", "—")
+
+    st.divider()
+    st.subheader("Qualidade de dados — Quarentena")
+    st.caption(
+        "Eventos Kafka com schema inválido ou sem itens de consentimento, desviados "
+        "pelo Silver antes do MERGE (`notebooks/silver_consent_stream.py:write_quarentena`) "
+        "— nunca chegam na Silver/Gold, mas ficam auditáveis aqui."
+    )
+    total_quarentena = obter_quarentena_total()
+    if total_quarentena is None:
+        st.warning("Não foi possível carregar o total de quarentena agora.")
+    else:
+        st.metric("Eventos em quarentena", total_quarentena)
+        if total_quarentena > 0:
+            eventos_quarentena = obter_quarentena_eventos()
+            with st.expander(f"Ver últimos {len(eventos_quarentena)} eventos rejeitados"):
+                st.dataframe(
+                    pd.DataFrame(eventos_quarentena),
+                    use_container_width=True,
+                    hide_index=True,
+                )
 
     st.divider()
     st.subheader("Últimas execuções — GitHub Actions")
@@ -213,6 +267,49 @@ def pagina_pipeline_em_acao() -> None:
                     st.markdown(f"✅ **{titulo}** — {explicacao}")
 
 
+def pagina_gold() -> None:
+    st.caption(
+        "Camada Gold: métricas agregadas por dia/banco/seguradora/tipo de "
+        "consentimento (`notebooks/gold_metricas.py`), recalculadas por dia a "
+        "cada micro-batch da Silver e espelhadas no Mongo pra API/dashboard "
+        "conseguirem ler sem acesso direto ao Unity Catalog."
+    )
+
+    metricas = obter_metricas_gold()
+    if not metricas:
+        st.info("Ainda sem métricas Gold processadas — roda o job `gold_metricas` no Databricks primeiro.")
+        return
+
+    df = pd.DataFrame(metricas)
+    df["data_referencia"] = pd.to_datetime(df["data_referencia"])
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total de eventos", int(df["total_eventos"].sum()))
+    col2.metric("Clientes distintos (soma por linha)", int(df["total_clientes_distintos"].sum()))
+    col3.metric("Dias com dado", df["data_referencia"].nunique())
+
+    st.subheader("Eventos por dia")
+    eventos_por_dia = df.groupby("data_referencia")["total_eventos"].sum().sort_index()
+    st.bar_chart(eventos_por_dia)
+
+    st.subheader("Eventos por tipo de consentimento")
+    eventos_por_tipo = (
+        df.groupby("tipo_consentimento")["total_eventos"].sum().sort_values(ascending=False)
+    )
+    st.bar_chart(eventos_por_tipo)
+
+    st.subheader("Eventos por banco de origem")
+    eventos_por_banco = df.groupby("banco_origem")["total_eventos"].sum().sort_values(ascending=False)
+    st.bar_chart(eventos_por_banco)
+
+    st.subheader("Detalhamento")
+    st.dataframe(
+        df.sort_values("data_referencia", ascending=False),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
 def pagina_100_exemplos() -> None:
     st.caption(
         "100 padrões práticos e técnicos de pipeline de dados (Databricks/PySpark, "
@@ -250,13 +347,15 @@ def main() -> None:
     st.set_page_config(page_title="Consentimentos — Base Susep (simulada)", page_icon="📋", layout="wide")
     st.title("📋 Status de Consentimento — Banco → Seguradora → Susep")
 
-    aba_consulta, aba_monitoramento, aba_pipeline, aba_exemplos = st.tabs(
-        ["🔍 Consulta", "📊 Monitoramento", "🔬 Pipeline em Ação", "💡 100 Exemplos"]
+    aba_consulta, aba_monitoramento, aba_gold, aba_pipeline, aba_exemplos = st.tabs(
+        ["🔍 Consulta", "📊 Monitoramento", "📈 Gold", "🔬 Pipeline em Ação", "💡 100 Exemplos"]
     )
     with aba_consulta:
         pagina_consulta()
     with aba_monitoramento:
         pagina_monitoramento()
+    with aba_gold:
+        pagina_gold()
     with aba_pipeline:
         pagina_pipeline_em_acao()
     with aba_exemplos:

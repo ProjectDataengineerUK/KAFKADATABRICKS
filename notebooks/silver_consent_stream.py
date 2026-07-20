@@ -12,10 +12,14 @@ dbutils.widgets.text("catalog", "consent_pipeline_dev")
 dbutils.widgets.text("checkpoint_base", "")  # vazio = usa o Volume padrão do catálogo
 dbutils.widgets.text("secret_scope", "consent-pipeline")
 dbutils.widgets.text("bundle_root", "")  # ${workspace.file_path} — ver jobs.yml
+dbutils.widgets.text("mongo_database", "susep_simulado")
+dbutils.widgets.text("mongo_quarentena_collection", "consentimentos_quarentena")
 
 catalog = dbutils.widgets.get("catalog")
 checkpoint_base = dbutils.widgets.get("checkpoint_base") or f"/Volumes/{catalog}/ops/checkpoints"
 secret_scope = dbutils.widgets.get("secret_scope")
+mongo_database = dbutils.widgets.get("mongo_database")
+mongo_quarentena_collection = dbutils.widgets.get("mongo_quarentena_collection")
 
 spark.sql(f"USE CATALOG {catalog}")
 
@@ -31,11 +35,17 @@ bundle_root = dbutils.widgets.get("bundle_root")
 if bundle_root:
     sys.path.append(bundle_root)
 
+from pymongo import MongoClient
 from pyspark.sql import functions as F
 from pyspark.sql.window import Window
 from delta.tables import DeltaTable
 
 from src.common.transforms import explode_consent_items, parse_and_split
+
+# Buscado uma vez fora do foreachBatch: dbutils não pode ser usado dentro do
+# closure (roda serializado em Spark Connect) — ver comentário equivalente
+# em mongo_sink.py/gold_metricas.py.
+mongo_uri = dbutils.secrets.get(secret_scope, "mongo-uri")
 
 # COMMAND ----------
 
@@ -137,12 +147,26 @@ def upsert_to_silver(microbatch_df, batch_id: int) -> None:
 def write_quarentena(microbatch_df, batch_id: int) -> None:
     if microbatch_df.isEmpty():
         return
-    (
-        microbatch_df.withColumn("_batch_id", F.lit(batch_id))
-        .write.format("delta")
-        .mode("append")
-        .saveAsTable(f"{catalog}.silver.consentimentos_quarentena")
+
+    marcado_df = microbatch_df.withColumn("_batch_id", F.lit(batch_id))
+    marcado_df.write.format("delta").mode("append").saveAsTable(
+        f"{catalog}.silver.consentimentos_quarentena"
     )
+
+    # Espelha os eventos rejeitados pro Mongo (mesma razão que
+    # gold_metricas/mongo_sink: a API/dashboard só enxergam o Mongo, não a
+    # Delta table) — permite monitorar volume/motivo de rejeição sem acesso
+    # ao Unity Catalog. Só insert (não upsert): cada linha aqui é um evento
+    # Kafka distinto por offset, nunca reprocessado (sem MERGE nesta tabela).
+    documentos = [row.asDict(recursive=True) for row in marcado_df.collect()]
+    if documentos:
+        for documento in documentos:
+            documento["kafka_timestamp"] = str(documento["kafka_timestamp"])
+        client = MongoClient(mongo_uri)
+        try:
+            client[mongo_database][mongo_quarentena_collection].insert_many(documentos)
+        finally:
+            client.close()
 
 
 # COMMAND ----------

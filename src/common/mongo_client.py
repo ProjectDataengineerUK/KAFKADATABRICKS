@@ -11,6 +11,7 @@ from src.common.config import get_settings
 
 CONSENT_COLLECTION_NAME = "consentimentos_cliente"
 GOLD_METRICAS_COLLECTION_NAME = "gold_metricas"
+QUARENTENA_COLLECTION_NAME = "consentimentos_quarentena"
 
 
 @lru_cache(maxsize=1)
@@ -31,3 +32,11 @@ def get_gold_metricas_collection(client: MongoClient | None = None) -> Collectio
     settings = get_settings()
     active_client = client or get_mongo_client()
     return active_client[settings.mongo_db_name][GOLD_METRICAS_COLLECTION_NAME]
+
+
+def get_quarentena_collection(client: MongoClient | None = None) -> Collection:
+    """Espelho dos eventos rejeitados por schema inválido
+    (notebooks/silver_consent_stream.py:write_quarentena)."""
+    settings = get_settings()
+    active_client = client or get_mongo_client()
+    return active_client[settings.mongo_db_name][QUARENTENA_COLLECTION_NAME]

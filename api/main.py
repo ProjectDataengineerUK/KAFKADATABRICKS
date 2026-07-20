@@ -9,6 +9,7 @@ from api.auth import create_access_token, validar_credenciais_demo
 from api.models import Token
 from api.routers.consentimentos import router as consentimentos_router
 from api.routers.gold import router as gold_router
+from api.routers.quarentena import router as quarentena_router
 from api.routers.status import router as status_router
 
 app = FastAPI(
@@ -20,6 +21,7 @@ app = FastAPI(
 app.include_router(consentimentos_router)
 app.include_router(status_router)
 app.include_router(gold_router)
+app.include_router(quarentena_router)
 
 
 @app.get("/health")
